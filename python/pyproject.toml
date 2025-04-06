@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nfc-authenticator"
+version = "1.0.0"
+description = "NFC MFC Authenticator Card Reader Library"
+readme = "README.md"
+authors = [
+    {name = "NFC MFC Auth Team"}
+]
+requires-python = ">=3.9"
+dependencies = [
+    "RPi.GPIO>=0.7.1",
+    "adafruit-circuitpython-pn532>=2.4.3",
+    "adafruit-circuitpython-busdevice>=5.2.11",
+    "cryptography>=3.4.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "ruff",
+]
+
+[project.scripts]
+nfc-reader-auth = "nfc_reader:main"
+
+[tool.setuptools]
+packages = ["nfc_authenticator"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py39"
+exclude = [
+    ".git",
+    "__pycache__",
+]
