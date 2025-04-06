@@ -64,6 +64,7 @@ class BiometricPromptActivity : AppCompatActivity() {
         val keyguardManager = getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
         if (keyguardManager.isKeyguardLocked) {
             Log.d(TAG, "Device is locked, requesting unlock")
+            @Suppress("DEPRECATION")
             val intent = keyguardManager.createConfirmDeviceCredentialIntent(
                 getString(R.string.unlock_device_title),
                 getString(R.string.unlock_device_message)
