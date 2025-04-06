@@ -14,5 +14,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "NFCPayment"
+rootProject.name = "NFC Authenticator"
 include ':app' 
