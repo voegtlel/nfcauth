@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Light theme colors -->
+    <color name="primary">#2E7D32</color>
+    <color name="primary_dark">#1B5E20</color>
+    <color name="primary_light">#81C784</color>
+    <color name="accent">#4CAF50</color>
+    <color name="primary_text">#212121</color>
+    <color name="secondary_text">#757575</color>
+    <color name="icons">#FFFFFF</color>
+    <color name="divider">#BDBDBD</color>
+    <color name="white">#FFFFFF</color>
+    <color name="black">#000000</color>
+    <color name="error">#B00020</color>
+    <color name="success">#4CAF50</color>
+    <color name="warning">#FFC107</color>
+    <color name="info">#2196F3</color>
+    <color name="background">#F5F5F5</color>
+    <color name="surface">#FFFFFF</color>
+    <color name="card_background">#FFFFFF</color>
+    <color name="ripple">#1A2E7D32</color>
+
+    <!-- Dark theme colors -->
+    <color name="background_dark">#121212</color>
+    <color name="surface_dark">#1E1E1E</color>
+    <color name="primary_text_dark">#FFFFFF</color>
+    <color name="secondary_text_dark">#B3FFFFFF</color>
+    <color name="divider_dark">#1FFFFFFF</color>
+    <color name="card_background_dark">#2C2C2C</color>
+    <color name="ripple_dark">#33FFFFFF</color>
+
+    <!-- Launcher icon colors -->
+    <color name="launcher_background">#203749</color>
+    <color name="launcher_stroke">#9095AA</color>
+    <color name="launcher_foreground">#FFFFFF</color>
+    <color name="launcher_waves">#434CF9</color>
+</resources> 

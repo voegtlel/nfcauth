@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">NFC MFC Authenticator</string>
+    <string name="auth_status">Hold phone near NFC reader to authenticate</string>
+    <string name="auth_success">Authentication successful!</string>
+    <string name="auth_failed">Authentication failed</string>
+    <string name="nfc_not_available">NFC is not available on this device</string>
+    <string name="biometric_prompt_title">Confirm Authentication</string>
+    <string name="biometric_prompt_subtitle">Please authenticate to confirm your identity</string>
+    <string name="service_name">NFC MFC Authentication Service</string>
+    <string name="no_readers_registered">No readers registered yet. Start registration in reader</string>
+    
+    <!-- BiometricPromptActivity strings -->
+    <string name="unlock_device_title">Unlock Device</string>
+    <string name="unlock_device_message">Please unlock your device and hold it at the reader again</string>
+    <string name="hold_device_title">Hold Device</string>
+    <string name="hold_device_message">Please hold your device at the reader again to complete biometric authentication</string>
+    <string name="dialog_button_ok">OK</string>
+    <string name="dialog_button_cancel">Cancel</string>
+
+    <!-- Registration strings -->
+    <string name="reader_info_format">Reader: %1$s\nID: %2$s\nUser ID: %3$s</string>
+    <string name="reader_info_with_name_format">Reader: %1$s\nID: %2$s\nUser ID: %3$s\nUser Name: %4$s</string>
+    <string name="registration_username_error">Please enter a user name</string>
+    <string name="registration_waiting_message">Hold the device to the reader for finishing the registration</string>
+    <string name="registration_success">Registration successful!</string>
+    <string name="registration_button_cancel">Cancel Registration</string>
+    <string name="registration_button_close">Close</string>
+
+    <!-- Registration Dialog strings -->
+    <string name="registration_user_name_hint">User Name</string>
+    <string name="registration_button_confirm">Confirm</string>
+</resources>

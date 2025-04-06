@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    
+    <!-- Shield background -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M54,20C40,20 30,30 30,44C30,58 54,88 54,88C54,88 78,58 78,44C78,30 68,20 54,20Z"/>
+    
+    <!-- NFC symbol -->
+    <path
+        android:fillColor="#000000"
+        android:pathData="M45,45H63V63H45V45Z"/>
+    
+    <!-- NFC waves -->
+    <path
+        android:fillColor="#000000"
+        android:pathData="M48,48H51V60H48V48Z"/>
+    <path
+        android:fillColor="#000000"
+        android:pathData="M57,48H60V60H57V48Z"/>
+</vector> 

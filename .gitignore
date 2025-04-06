@@ -1,0 +1,7 @@
+.gradle
+.idea
+.vscode
+.DS_Store
+.venv
+.env
+/app/build

@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Base theme -->
+    <style name="Theme.AndroidAuth" parent="Theme.MaterialComponents.DayNight.DarkActionBar">
+        <!-- Common attributes -->
+        <item name="colorPrimary">@color/primary</item>
+        <item name="colorPrimaryVariant">@color/primary_dark</item>
+        <item name="colorOnPrimary">@color/white</item>
+        <item name="colorSecondary">@color/accent</item>
+        <item name="colorSecondaryVariant">@color/primary_dark</item>
+        <item name="colorOnSecondary">@color/white</item>
+        <item name="android:statusBarColor">?attr/colorPrimaryVariant</item>
+        <item name="colorControlHighlight">@color/ripple</item>
+    </style>
+
+    <!-- Day theme -->
+    <style name="Theme.AndroidAuth.Day" parent="Theme.AndroidAuth">
+        <!-- Light mode specific colors -->
+        <item name="android:colorBackground">@color/background</item>
+        <item name="colorSurface">@color/surface</item>
+        <item name="colorOnSurface">@color/primary_text</item>
+        <item name="android:textColorPrimary">@color/primary_text</item>
+        <item name="android:textColorSecondary">@color/secondary_text</item>
+        <item name="android:windowBackground">@color/background</item>
+    </style>
+
+    <!-- Night theme -->
+    <style name="Theme.AndroidAuth.Night" parent="Theme.AndroidAuth">
+        <!-- Dark mode specific colors -->
+        <item name="android:colorBackground">@color/background_dark</item>
+        <item name="colorSurface">@color/surface_dark</item>
+        <item name="colorOnSurface">@color/primary_text_dark</item>
+        <item name="android:textColorPrimary">@color/primary_text_dark</item>
+        <item name="android:textColorSecondary">@color/secondary_text_dark</item>
+        <item name="android:windowBackground">@color/background_dark</item>
+    </style>
+
+    <!-- Base dialog theme -->
+    <style name="Theme.Dialog" parent="Theme.MaterialComponents.DayNight.Dialog">
+        <item name="android:windowIsFloating">true</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowCloseOnTouchOutside">false</item>
+        <item name="android:windowSoftInputMode">adjustResize</item>
+        <item name="android:windowContentOverlay">@null</item>
+        <item name="android:windowMinWidthMajor">85%</item>
+        <item name="android:windowMinWidthMinor">85%</item>
+        <item name="android:windowIsTranslucent">false</item>
+        <!-- Common dialog colors -->
+        <item name="android:windowBackground">@color/surface</item>
+        <item name="colorSurface">@color/surface</item>
+        <item name="colorOnSurface">@color/primary_text</item>
+        <item name="colorPrimary">@color/primary</item>
+        <item name="colorPrimaryVariant">@color/primary_dark</item>
+        <item name="colorOnPrimary">@color/white</item>
+        <item name="colorSecondary">@color/accent</item>
+        <item name="colorSecondaryVariant">@color/primary_dark</item>
+        <item name="colorOnSecondary">@color/white</item>
+        <!-- Material Design specific -->
+        <item name="materialButtonStyle">@style/Widget.MaterialComponents.Button</item>
+        <item name="textInputStyle">@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox</item>
+    </style>
+
+    <!-- Day dialog theme -->
+    <style name="Theme.Dialog.Day" parent="Theme.Dialog">
+        <item name="android:windowBackground">@color/surface</item>
+        <item name="colorSurface">@color/surface</item>
+        <item name="colorOnSurface">@color/primary_text</item>
+    </style>
+
+    <!-- Night dialog theme -->
+    <style name="Theme.Dialog.Night" parent="Theme.Dialog">
+        <item name="android:windowBackground">@color/surface_dark</item>
+        <item name="colorSurface">@color/surface_dark</item>
+        <item name="colorOnSurface">@color/primary_text_dark</item>
+    </style>
+</resources> 
