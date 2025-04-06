@@ -30,4 +30,6 @@
     <!-- Registration Dialog strings -->
     <string name="registration_user_name_hint">User Name</string>
     <string name="registration_button_confirm">Confirm</string>
+
+    <string name="show_public_key">Show Public Key</string>
 </resources>

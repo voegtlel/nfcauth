@@ -6,6 +6,8 @@ import android.content.Intent
 import android.nfc.NfcAdapter
 import android.os.Bundle
 import android.util.Log
+import android.util.Base64
+import android.widget.Button
 import android.widget.EditText
 import android.widget.TextView
 import android.widget.Toast
@@ -24,6 +26,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var readersRecyclerView: RecyclerView
     private lateinit var readersAdapter: ReadersAdapter
     private lateinit var swipeRefresh: SwipeRefreshLayout
+    private lateinit var infoButton: Button
 
     companion object {
         private const val TAG = "MainActivity"
@@ -37,6 +40,7 @@ class MainActivity : AppCompatActivity() {
         statusText = findViewById(R.id.statusText)
         readersRecyclerView = findViewById(R.id.readersRecyclerView)
         swipeRefresh = findViewById(R.id.swipeRefresh)
+        infoButton = findViewById(R.id.infoButton)
 
         // Initialize database
         authDatabase = AuthDatabase(this)
@@ -58,6 +62,11 @@ class MainActivity : AppCompatActivity() {
         swipeRefresh.setOnRefreshListener {
             loadReaders()
             swipeRefresh.isRefreshing = false
+        }
+
+        // Setup info button
+        infoButton.setOnClickListener {
+            showPublicKey()
         }
 
         // Load initial data
@@ -95,6 +104,21 @@ class MainActivity : AppCompatActivity() {
     private fun updateStatusText(message: String) {
         statusText.text = message
         Log.d(TAG, "Status updated: $message")
+    }
+
+    private fun showPublicKey() {
+        try {
+            val publicKey = keyManager.getPublicKeyAsString()
+
+            AlertDialog.Builder(this)
+                .setTitle("Public Key")
+                .setMessage(publicKey)
+                .setPositiveButton("OK", null)
+                .show()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error showing public key", e)
+            Toast.makeText(this, "Error showing public key", Toast.LENGTH_SHORT).show()
+        }
     }
 
     override fun onDestroy() {

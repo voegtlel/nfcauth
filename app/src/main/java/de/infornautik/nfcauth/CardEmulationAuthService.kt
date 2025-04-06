@@ -13,6 +13,9 @@ import java.io.FileInputStream
 import java.io.ObjectOutputStream
 import java.io.ObjectInputStream
 import android.content.Intent
+import android.os.Vibrator
+import android.os.VibrationEffect
+import android.content.Context
 
 
 class CardEmulationAuthService : HostApduService() {
@@ -124,6 +127,7 @@ class CardEmulationAuthService : HostApduService() {
 
     private fun showRegistrationDialog(readerId: String, readerName: String) {
         Log.d(TAG, "Showing registration dialog")
+        vibrate()
         // Create an intent to launch the registration activity
         val registrationIntent = Intent(this, RegistrationActivity::class.java).apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -142,6 +146,7 @@ class CardEmulationAuthService : HostApduService() {
     }
 
     private fun showNotRegisteredDialog() {
+        vibrate()
         val intent = Intent(this, NotRegisteredDialog::class.java).apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
@@ -211,6 +216,7 @@ class CardEmulationAuthService : HostApduService() {
             // Run biometric authentication
             if (!authStateManager.isAuthenticated()) {
                 Log.d(TAG, "Not authenticated, showing biometric prompt")
+                vibrate()
                 // Show biometric prompt
                 showBiometricPrompt()
 
@@ -231,8 +237,21 @@ class CardEmulationAuthService : HostApduService() {
             put("signature", signature)
         }
 
+        vibrate()
+
         Log.d(TAG, "Successful authentication response: $response")
         return setPendingResponse(response.toString().toByteArray())
+    }
+
+    fun vibrate() {
+        @Suppress("DEPRECATION")
+        val vibrator = getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            vibrator.vibrate(VibrationEffect.createOneShot(50, VibrationEffect.DEFAULT_AMPLITUDE))
+        } else {
+            @Suppress("DEPRECATION")
+            vibrator.vibrate(50)
+        }
     }
 
     fun setPendingResponse(response: ByteArray): ByteArray {
@@ -268,6 +287,7 @@ class CardEmulationAuthService : HostApduService() {
                 // Check if AID matches
                 if (aid.contentEquals(AID)) {
                     Log.d(TAG, "AID matches, sending success response")
+                    vibrate()
                     return byteArrayOf(0x90.toByte(), 0x00.toByte())
                 } else {
                     Log.e(TAG, "AID mismatch. Expected: ${bytesToHex(AID)}, Got: ${bytesToHex(aid)}")
@@ -305,6 +325,7 @@ class CardEmulationAuthService : HostApduService() {
                     Log.e(TAG, "Error computing registration complete")
                     return RESP_ERROR_SW
                 }
+                vibrate()
                 return RESP_SUCCESS_SW
             }
 
