@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <TextView
+        android:id="@+id/privacyPolicyText"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:autoLink="web|email"
+        android:lineSpacingExtra="4dp"
+        android:padding="20dp"
+        android:text="@string/app_privacy_policy_text"
+        android:textIsSelectable="true"
+        android:textSize="16sp" />
+</ScrollView>

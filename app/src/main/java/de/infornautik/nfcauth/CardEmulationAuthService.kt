@@ -1,429 +1,423 @@
 package de.infornautik.nfcauth
 
+import android.content.Context
+import android.content.Intent
 import android.nfc.cardemulation.HostApduService
 import android.os.Bundle
-import android.util.Log
-import java.security.KeyStore
-import org.json.JSONObject
-import java.util.UUID
-import android.util.Base64
-import java.io.File
-import java.io.FileOutputStream
-import java.io.FileInputStream
-import java.io.ObjectOutputStream
-import java.io.ObjectInputStream
-import android.content.Intent
-import android.os.Vibrator
 import android.os.VibrationEffect
-import android.content.Context
-
+import android.os.Vibrator
+import org.json.JSONObject
+import java.io.ByteArrayOutputStream
 
 class CardEmulationAuthService : HostApduService() {
     private lateinit var keyManager: KeyManager
     private lateinit var authDatabase: AuthDatabase
-    private var deviceUuid: String? = null
-    private var pendingResponse: ByteArray? = null
-    private var pendingResponseOffset = 0
-    private var registrationDialog: RegistrationDialog? = null
     private lateinit var registrationDataManager: RegistrationDataManager
     private val authStateManager = BiometricAuthStateManager.getInstance()
 
-    companion object {
-        private const val TAG = "CardEmulationAuthService"
-        private const val PENDING_REGISTRATION_FILE = "pending_registration.json"
-        private val AID = byteArrayOf(0xF0.toByte(), 0x64.toByte(), 0x65.toByte(), 0x2E.toByte(), 0x69.toByte(), 0x6E.toByte(), 0x66.toByte(), 0x6F.toByte(), 0x72.toByte(), 0x6E.toByte(), 0x61.toByte(), 0x75.toByte(), 0x74.toByte(), 0x69.toByte(), 0x6B.toByte())
-        private val CMD_SELECT_APDU = byteArrayOf(0x00.toByte(), 0xA4.toByte(), 0x04.toByte(), 0x00.toByte())
-        private val CMD_USER_REGISTRATION = byteArrayOf(0xD0.toByte(), 0x01.toByte(), 0x00.toByte(), 0x00.toByte())
-        private val CMD_USER_REGISTRATION_COMPLETE = byteArrayOf(0xD0.toByte(), 0x01.toByte(), 0x00.toByte(), 0x01.toByte())
-        private val CMD_USER_AUTHENTICATION = byteArrayOf(0xD0.toByte(), 0x02.toByte(), 0x00.toByte(), 0x00.toByte())
-        private val CMD_GET_RESPONSE = byteArrayOf(0x00.toByte(), 0xC0.toByte(), 0x00.toByte(), 0x00.toByte())
-        private val CMD_USER_NOT_REGISTERED = byteArrayOf(0xD0.toByte(), 0x03.toByte(), 0x00.toByte(), 0x00.toByte())
-        private val RESP_SUCCESS_SW = byteArrayOf(0x90.toByte(), 0x00.toByte())
-        private val RESP_UNKNOWN_CMD_SW = byteArrayOf(0x00.toByte(), 0x00.toByte())
-        private val RESP_ERROR_SW = byteArrayOf(0x67.toByte(), 0x00.toByte())
-        private val RESP_BIOMETRIC_REQUIRED_SW = byteArrayOf(0x63.toByte(), 0x00.toByte())
-        private val RESP_UNAUTHORIZED_SW = byteArrayOf(0x69.toByte(), 0x83.toByte())
-    }
+    private var pendingResponse: ByteArray? = null
+    private var pendingResponseOffset = 0
+    private var incomingInstruction: Int? = null
+    private var incomingSequence = 0
+    private var incomingPayload = ByteArrayOutputStream()
 
     override fun onCreate() {
         super.onCreate()
-        Log.d(TAG, "CardEmulationService onCreate")
-
-        // Initialize KeyManager
         keyManager = KeyManager(this)
-        Log.d(TAG, "KeyManager initialized")
-
-        // Initialize database
         authDatabase = AuthDatabase(this)
-        Log.d(TAG, "Database initialized successfully")
-
-        // Initialize registration data manager
         registrationDataManager = RegistrationDataManager(this)
-        Log.d(TAG, "RegistrationDataManager initialized")
     }
 
     override fun onDestroy() {
-        super.onDestroy()
-        Log.d(TAG, "CardEmulationService onDestroy")
-        // Clear pending data but keep authentication state
-        pendingResponse = null
-        pendingResponseOffset = 0
+        clearTransientState()
         authDatabase.close()
+        super.onDestroy()
     }
 
-    fun setPendingRegistrationData(data: JSONObject?) {
-        try {
-            if (data == null) {
-                if (File(filesDir, PENDING_REGISTRATION_FILE).exists()) {
-                    File(filesDir, PENDING_REGISTRATION_FILE).delete()
-                    Log.d(TAG, "Deleted pending registration data")
-                }
-            } else {
-                FileOutputStream(File(filesDir, PENDING_REGISTRATION_FILE)).use { fos ->
-                    ObjectOutputStream(fos).writeObject(data.toString())
-                }
-                Log.d(TAG, "Saved pending registration data ${data.toString()}")
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error saving pending registration data", e)
-        }
-    }
-
-    fun getPendingRegistrationData(): JSONObject? {
+    override fun processCommandApdu(commandApdu: ByteArray, extras: Bundle?): ByteArray {
         return try {
-            val file = File(filesDir, PENDING_REGISTRATION_FILE)
-            if (!file.exists()) {
-                return null
+            when {
+                isSelectCommand(commandApdu) -> processSelect(commandApdu)
+                commandApdu.size < 5 -> RESP_WRONG_LENGTH
+                isGetResponseCommand(commandApdu) -> processGetResponse(commandApdu)
+                commandApdu[0] != PROPRIETARY_CLASS -> RESP_UNKNOWN_COMMAND
+                commandApdu[1] == INS_REGISTRATION -> processIncomingChunk(
+                    commandApdu,
+                    INS_REGISTRATION.toInt() and 0xff,
+                    ::computeRegistrationResponse,
+                )
+                commandApdu[1] == INS_AUTHENTICATION -> processIncomingChunk(
+                    commandApdu,
+                    INS_AUTHENTICATION.toInt() and 0xff,
+                    ::computeAuthenticationResponse,
+                )
+                commandApdu[1] == INS_REGISTRATION_ACK -> processIncomingChunk(
+                    commandApdu,
+                    INS_REGISTRATION_ACK.toInt() and 0xff,
+                    ::computeRegistrationComplete,
+                )
+                commandApdu[1] == INS_USER_NOT_REGISTERED -> {
+                    showNotRegisteredDialog()
+                    RESP_SUCCESS
+                }
+                else -> RESP_UNKNOWN_COMMAND
             }
-            val data = FileInputStream(file).use { fis ->
-                ObjectInputStream(fis).readObject() as String
-            }
-            JSONObject(data)
-        } catch (e: Exception) {
-            Log.e(TAG, "Error loading pending registration data", e)
-            null
+        } catch (_: Exception) {
+            resetIncomingRequest()
+            RESP_ERROR
         }
     }
 
-    private fun computeRegistrationComplete(): Boolean {
-        Log.d(TAG, "Registration complete")
-        val pendingRegistrationData = registrationDataManager.getPendingRegistrationData()
-        if (pendingRegistrationData == null) {
-            Log.e(TAG, "No pending registration data")
-            return false
-        }
-        val userId = pendingRegistrationData.optString("user_id")
-        val userName = pendingRegistrationData.optString("user_name")
-        val readerId = pendingRegistrationData.optString("reader_id")
-        val readerName = pendingRegistrationData.optString("reader_name")
-        if (readerId.isBlank() || readerName.isBlank() || userId.isBlank() || userName.isBlank()) {
-            Log.e(TAG, "Invalid registration complete data: $pendingRegistrationData")
-            return false
-        }
-        authDatabase.registerReader(readerId, readerName, userId, userName)
-        registrationDataManager.setPendingRegistrationData(null)
-        return true
+    override fun onDeactivated(reason: Int) {
+        clearTransientState()
     }
 
-    private fun showRegistrationDialog(readerId: String, readerName: String) {
-        Log.d(TAG, "Showing registration dialog")
+    private fun computeRegistrationResponse(rawEnvelope: String): ByteArray {
+        val verified = try {
+            ServiceManifestParser.parseAndVerify(rawEnvelope)
+        } catch (_: ManifestValidationException) {
+            return RESP_INVALID_DATA
+        }
+
+        registrationDataManager.pendingResponseFor(
+            verified.manifest.serviceId,
+            verified.manifestHash,
+        )?.let { response ->
+            return setPendingResponse(response.toString().toByteArray(Charsets.UTF_8))
+        }
+
+        // Do not let a second service replace a transfer the user already approved.
+        if (registrationDataManager.hasPendingRegistrationData()) {
+            return RESP_CONDITIONS_NOT_SATISFIED
+        }
+
         vibrate()
-        // Create an intent to launch the registration activity
-        val registrationIntent = Intent(this, RegistrationActivity::class.java).apply {
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            putExtra("reader_id", readerId)
-            putExtra("reader_name", readerName)
-        }        
-        startActivity(registrationIntent)
+        startActivity(
+            Intent(this, RegistrationActivity::class.java).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                putExtra(RegistrationActivity.EXTRA_SIGNED_MANIFEST, rawEnvelope)
+            },
+        )
+        return RESP_SUCCESS
     }
 
-    private fun showBiometricPrompt() {
-        // Since we're in a service, we need to create a new activity to show the biometric prompt
-        val intent = Intent(this, BiometricPromptActivity::class.java).apply {
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    private fun computeRegistrationComplete(rawEnvelope: String): ByteArray {
+        val pending = registrationDataManager.getPendingRegistrationData()
+            ?: return RESP_CONDITIONS_NOT_SATISFIED
+        val serviceId = pending.optString("service_id")
+        val manifestHash = pending.optString("manifest_hash")
+        val registrationNonce = pending.optString("registration_nonce")
+        if (serviceId.isBlank() || manifestHash.isBlank() || registrationNonce.isBlank()) {
+            return RESP_INVALID_DATA
         }
-        startActivity(intent)
+        val sessionKey = keyManager.getPendingSessionKey(serviceId)
+            ?: return RESP_CONDITIONS_NOT_SATISFIED
+
+        val acknowledgement = try {
+            NfcCrypto.decryptRegistrationAcknowledgement(
+                JSONObject(rawEnvelope),
+                serviceId,
+                manifestHash,
+                sessionKey,
+            )
+        } catch (_: Exception) {
+            return RESP_SECURITY_STATUS_NOT_SATISFIED
+        } finally {
+            sessionKey.fill(0)
+        }
+        if (acknowledgement.optString("status") != "registered" ||
+            acknowledgement.optString("registration_nonce") != registrationNonce ||
+            acknowledgement.optString("service_id") != serviceId
+        ) {
+            return RESP_SECURITY_STATUS_NOT_SATISFIED
+        }
+
+        val reader = registrationDataManager.readerInfoFromPending(pending)
+            ?: return RESP_INVALID_DATA
+        return try {
+            keyManager.commitPendingSessionKey(serviceId)
+            if (!authDatabase.registerReader(reader)) {
+                return RESP_ERROR
+            }
+            registrationDataManager.setPendingRegistrationData(null)
+            vibrate()
+            RESP_SUCCESS
+        } catch (_: Exception) {
+            RESP_ERROR
+        }
     }
+
+    private fun computeAuthenticationResponse(rawEnvelope: String): ByteArray {
+        val envelope = try {
+            JSONObject(rawEnvelope)
+        } catch (_: Exception) {
+            return RESP_INVALID_DATA
+        }
+        val serviceId = envelope.opt("service_id") as? String
+            ?: return RESP_INVALID_DATA
+        val reader = authDatabase.getReaderInfo(serviceId) ?: run {
+            showNotRegisteredDialog()
+            return RESP_UNAUTHORIZED
+        }
+        val sessionKey = keyManager.getSessionKey(serviceId)
+            ?: return RESP_UNAUTHORIZED
+        val request = try {
+            NfcCrypto.decryptAuthenticationRequest(envelope, reader, sessionKey)
+        } catch (_: Exception) {
+            sessionKey.fill(0)
+            return RESP_SECURITY_STATUS_NOT_SATISFIED
+        }
+
+        val nonce = request.opt("nonce") as? String
+        val authMode = request.opt("auth") as? String
+        val requestServiceId = request.opt("service_id") as? String
+        val requestVersion = (request.opt("protocol_version") as? Number)?.toInt()
+        if (nonce.isNullOrBlank() ||
+            authMode.isNullOrBlank() ||
+            requestServiceId != serviceId ||
+            requestVersion != ServiceManifestParser.PROTOCOL_VERSION
+        ) {
+            sessionKey.fill(0)
+            return RESP_INVALID_DATA
+        }
+
+        when (authMode) {
+            "background" -> Unit
+            "biometric" -> if (!authStateManager.isAuthenticated()) {
+                sessionKey.fill(0)
+                vibrate()
+                startActivity(
+                    Intent(this, BiometricPromptActivity::class.java).apply {
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    },
+                )
+                return RESP_BIOMETRIC_REQUIRED
+            }
+            else -> {
+                sessionKey.fill(0)
+                return RESP_INVALID_DATA
+            }
+        }
+
+        val signature = try {
+            keyManager.sign(
+                serviceId,
+                NfcCrypto.authenticationSignaturePayload(
+                    serviceId,
+                    nonce,
+                    authMode,
+                    reader.userId,
+                ),
+            )
+        } catch (_: Exception) {
+            sessionKey.fill(0)
+            return RESP_ERROR
+        }
+        val plaintextResponse = JSONObject().apply {
+            put("protocol_version", ServiceManifestParser.PROTOCOL_VERSION)
+            put("service_id", serviceId)
+            put("nonce", nonce)
+            put("user_id", reader.userId)
+            put("signature", signature)
+        }
+        val encryptedResponse = try {
+            NfcCrypto.encryptAuthenticationResponse(reader, sessionKey, plaintextResponse)
+        } catch (_: Exception) {
+            sessionKey.fill(0)
+            return RESP_ERROR
+        }
+        sessionKey.fill(0)
+        vibrate()
+        return setPendingResponse(encryptedResponse.toString().toByteArray(Charsets.UTF_8))
+    }
+
+    private fun processIncomingChunk(
+        command: ByteArray,
+        instruction: Int,
+        onComplete: (String) -> ByteArray,
+    ): ByteArray {
+        val sequence = command[2].toInt() and 0xff
+        val flags = command[3].toInt() and 0xff
+        if (flags != FLAG_FINAL && flags != FLAG_MORE) {
+            resetIncomingRequest()
+            return RESP_INVALID_DATA
+        }
+        val length = command[4].toInt() and 0xff
+        if (command.size != length + 5) {
+            resetIncomingRequest()
+            return RESP_WRONG_LENGTH
+        }
+
+        if (sequence == 0) {
+            resetIncomingRequest()
+            incomingInstruction = instruction
+        }
+        if (incomingInstruction != instruction || sequence != incomingSequence) {
+            resetIncomingRequest()
+            return RESP_INVALID_DATA
+        }
+        if (incomingPayload.size() + length > MAX_INCOMING_PAYLOAD_BYTES) {
+            resetIncomingRequest()
+            return RESP_WRONG_LENGTH
+        }
+        incomingPayload.write(command, 5, length)
+
+        if (flags == FLAG_MORE) {
+            incomingSequence += 1
+            if (incomingSequence > 255) {
+                resetIncomingRequest()
+                return RESP_WRONG_LENGTH
+            }
+            return RESP_SUCCESS
+        }
+
+        val completePayload = incomingPayload.toByteArray()
+        resetIncomingRequest()
+        return onComplete(String(completePayload, Charsets.UTF_8))
+    }
+
+    private fun processGetResponse(command: ByteArray): ByteArray {
+        val response = pendingResponse ?: return RESP_CONDITIONS_NOT_SATISFIED
+        var requested = command[4].toInt() and 0xff
+        if (requested == 0) requested = 256
+        val remaining = response.size - pendingResponseOffset
+        if (remaining <= 0) {
+            pendingResponse = null
+            pendingResponseOffset = 0
+            return RESP_CONDITIONS_NOT_SATISFIED
+        }
+
+        val responseLength = minOf(requested, remaining)
+        val responseBuffer = ByteArray(responseLength + 2)
+        response.copyInto(
+            responseBuffer,
+            destinationOffset = 0,
+            startIndex = pendingResponseOffset,
+            endIndex = pendingResponseOffset + responseLength,
+        )
+        pendingResponseOffset += responseLength
+        val bytesRemaining = response.size - pendingResponseOffset
+        if (bytesRemaining == 0) {
+            responseBuffer[responseLength] = 0x90.toByte()
+            responseBuffer[responseLength + 1] = 0x00.toByte()
+            pendingResponse = null
+            pendingResponseOffset = 0
+        } else {
+            responseBuffer[responseLength] = 0x61.toByte()
+            responseBuffer[responseLength + 1] =
+                if (bytesRemaining >= 256) 0 else bytesRemaining.toByte()
+        }
+        return responseBuffer
+    }
+
+    private fun setPendingResponse(response: ByteArray): ByteArray {
+        pendingResponse = response
+        pendingResponseOffset = 0
+        return when {
+            response.isEmpty() -> RESP_SUCCESS
+            response.size >= 256 -> byteArrayOf(0x61.toByte(), 0x00.toByte())
+            else -> byteArrayOf(0x61.toByte(), response.size.toByte())
+        }
+    }
+
+    private fun processSelect(command: ByteArray): ByteArray {
+        if (command.size < 5) return RESP_WRONG_LENGTH
+        val aidLength = command[4].toInt() and 0xff
+        if (command.size < 5 + aidLength) return RESP_WRONG_LENGTH
+        val aid = command.copyOfRange(5, 5 + aidLength)
+        return if (aid.contentEquals(AID)) {
+            vibrate()
+            RESP_SUCCESS
+        } else {
+            byteArrayOf(0x6A.toByte(), 0x82.toByte())
+        }
+    }
+
+    private fun isSelectCommand(command: ByteArray): Boolean =
+        command.size >= 4 &&
+            command[0] == 0x00.toByte() &&
+            command[1] == 0xA4.toByte() &&
+            command[2] == 0x04.toByte() &&
+            command[3] == 0x00.toByte()
+
+    private fun isGetResponseCommand(command: ByteArray): Boolean =
+        command.size == 5 &&
+            command[0] == 0x00.toByte() &&
+            command[1] == 0xC0.toByte() &&
+            command[2] == 0x00.toByte() &&
+            command[3] == 0x00.toByte()
 
     private fun showNotRegisteredDialog() {
         vibrate()
-        val intent = Intent(this, NotRegisteredDialog::class.java).apply {
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        }
-        startActivity(intent)
+        startActivity(
+            Intent(this, NotRegisteredDialog::class.java).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            },
+        )
     }
 
-    private fun computeRegistrationResponse(dataString: String): ByteArray {
-        // Parse the registration request JSON
-        val registrationRequest = JSONObject(dataString)
-        val readerId = registrationRequest.optString("reader_id")
-        val readerName = registrationRequest.optString("reader_name")
-        val version = registrationRequest.optInt("version", -1)
-
-        if (readerId.isBlank() || readerName.isBlank() || version == -1) {
-            Log.e(TAG, "Invalid registration request: missing reader_id or reader_name or version")
-            return RESP_UNKNOWN_CMD_SW
-        }
-
-        if (version != 1) {
-            Log.e(TAG, "Unsupported version: $version")
-            return RESP_UNKNOWN_CMD_SW
-        }
-
-        var pendingRegistrationData = registrationDataManager.getPendingRegistrationData()
-
-        if (pendingRegistrationData == null || pendingRegistrationData.optString("reader_id") != readerId) {
-            Log.d(TAG, "Starting new registration process for reader $readerId")
-            
-            // Show registration dialog
-            showRegistrationDialog(readerId, readerName)
-            Log.e(TAG, "Registration response pending")
-            return RESP_SUCCESS_SW
-        } else {
-            // Continue the registration process
-            Log.d(TAG, "Continuing registration process for reader $readerId, sending registration response: ${pendingRegistrationData}")
-            return setPendingResponse(pendingRegistrationData.toString().toByteArray())
-        }
-    }
-
-    private fun computeAuthenticationResponse(dataString: String): ByteArray {
-        // Parse the authentication request JSON
-        val authRequest = JSONObject(dataString)
-        val readerId = authRequest.optString("reader_id")
-        val nonce = authRequest.optString("nonce")
-        val auth = authRequest.optString("auth")
-        val version = authRequest.optInt("version", -1)
-        if (readerId.isBlank() || nonce.isBlank() || auth.isBlank() || version == -1) {
-            Log.e(TAG, "Invalid authentication request: missing reader_id or nonce or auth or version")
-            return RESP_UNKNOWN_CMD_SW
-        }
-
-        if (version != 1) {
-            Log.e(TAG, "Unsupported version: $version")
-            return RESP_UNKNOWN_CMD_SW
-        }
-
-        // Get the user ID and private key from the database
-        val readerInfo = authDatabase.getReaderInfo(readerId) ?: run {
-            Log.e(TAG, "No reader info found in database")
-            showNotRegisteredDialog()
-            return RESP_UNAUTHORIZED_SW
-        }
-
-        if (auth == "background") {
-            // Always authenticate
-        } else if (auth == "biometric") {
-            // Run biometric authentication
-            if (!authStateManager.isAuthenticated()) {
-                Log.d(TAG, "Not authenticated, showing biometric prompt")
-                vibrate()
-                // Show biometric prompt
-                showBiometricPrompt()
-
-                return RESP_BIOMETRIC_REQUIRED_SW
-            }
-        } else {
-            return RESP_UNKNOWN_CMD_SW
-        }
-        
-        val userId = readerInfo.userId
-        
-        // Sign the authentication request data
-        val signature = keyManager.sign((dataString + userId).toByteArray())
-        
-        // Create authentication response
-        val response = JSONObject().apply {
-            put("user_id", userId)
-            put("signature", signature)
-        }
-
-        vibrate()
-
-        Log.d(TAG, "Successful authentication response: $response")
-        return setPendingResponse(response.toString().toByteArray())
-    }
-
-    fun vibrate() {
+    private fun vibrate() {
         @Suppress("DEPRECATION")
         val vibrator = getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-            vibrator.vibrate(VibrationEffect.createOneShot(50, VibrationEffect.DEFAULT_AMPLITUDE))
+            vibrator.vibrate(
+                VibrationEffect.createOneShot(50, VibrationEffect.DEFAULT_AMPLITUDE),
+            )
         } else {
             @Suppress("DEPRECATION")
             vibrator.vibrate(50)
         }
     }
 
-    fun setPendingResponse(response: ByteArray): ByteArray {
-        pendingResponse = response
-        pendingResponseOffset = 0
-        if (pendingResponse?.size ?: 0 == 0) {
-            return byteArrayOf(0x90.toByte(), 0x00.toByte())
-        }
-        if (pendingResponse?.size ?: 0 >= 256) {
-            // too large to send in one go
-            return byteArrayOf(0x61.toByte(), 0x00.toByte())
-        }
-        return byteArrayOf(0x61.toByte(), (pendingResponse?.size ?: 0).toByte())
-    }
-
-    override fun processCommandApdu(commandApdu: ByteArray, extras: Bundle?): ByteArray {
-        try {
-            Log.d(TAG, "Received APDU command: ${bytesToHex(commandApdu)}")
-            
-            // Check if it's a SELECT command
-            if (commandApdu.size >= 4 && 
-                commandApdu[0] == CMD_SELECT_APDU[0] && 
-                commandApdu[1] == CMD_SELECT_APDU[1] && 
-                commandApdu[2] == CMD_SELECT_APDU[2] && 
-                commandApdu[3] == CMD_SELECT_APDU[3]) {
-                
-                Log.d(TAG, "Processing SELECT command")
-                // Extract AID from SELECT command
-                val aidLength = commandApdu[4].toInt()
-                val aid = commandApdu.copyOfRange(5, 5 + aidLength)
-                Log.d(TAG, "SELECT AID: ${bytesToHex(aid)}")
-                
-                // Check if AID matches
-                if (aid.contentEquals(AID)) {
-                    Log.d(TAG, "AID matches, sending success response")
-                    vibrate()
-                    return byteArrayOf(0x90.toByte(), 0x00.toByte())
-                } else {
-                    Log.e(TAG, "AID mismatch. Expected: ${bytesToHex(AID)}, Got: ${bytesToHex(aid)}")
-                    return byteArrayOf(0x6A.toByte(), 0x82.toByte()) // File not found
-                }
-            }
-            
-            // Check for registration command
-            if (commandApdu.size >= 4 && 
-                commandApdu[0] == CMD_USER_REGISTRATION[0] && 
-                commandApdu[1] == CMD_USER_REGISTRATION[1] && 
-                commandApdu[2] == CMD_USER_REGISTRATION[2] && 
-                commandApdu[3] == CMD_USER_REGISTRATION[3]) {
-                
-                Log.d(TAG, "Processing user registration command")
-                // Extract registration data from command
-                val dataLength = commandApdu[4].toInt()
-                val dataBytes = commandApdu.copyOfRange(5, 5 + dataLength)
-                val dataString = String(dataBytes)
-                
-                Log.d(TAG, "Registration data: $dataString")
-
-                return computeRegistrationResponse(dataString)
-            }
-
-            // Check for registration complete command
-            if (commandApdu.size >= 4 && 
-                commandApdu[0] == CMD_USER_REGISTRATION_COMPLETE[0] && 
-                commandApdu[1] == CMD_USER_REGISTRATION_COMPLETE[1] && 
-                commandApdu[2] == CMD_USER_REGISTRATION_COMPLETE[2] && 
-                commandApdu[3] == CMD_USER_REGISTRATION_COMPLETE[3]) {
-                
-                Log.d(TAG, "Processing user registration complete command")
-                if (!computeRegistrationComplete()) {
-                    Log.e(TAG, "Error computing registration complete")
-                    return RESP_ERROR_SW
-                }
-                vibrate()
-                return RESP_SUCCESS_SW
-            }
-
-            // Check for authentication command
-            if (commandApdu.size >= 4 && 
-                commandApdu[0] == CMD_USER_AUTHENTICATION[0] && 
-                commandApdu[1] == CMD_USER_AUTHENTICATION[1] && 
-                commandApdu[2] == CMD_USER_AUTHENTICATION[2] && 
-                commandApdu[3] == CMD_USER_AUTHENTICATION[3]) {
-                
-                Log.d(TAG, "Processing user authentication command")
-
-                // Extract authentication data from command
-                val dataLength = commandApdu[4].toInt()
-                val dataBytes = commandApdu.copyOfRange(5, 5 + dataLength)
-                val dataString = String(dataBytes)
-                Log.d(TAG, "Authentication data: $dataString")
-                return computeAuthenticationResponse(dataString)
-            }
-
-            // Check for get response command
-            if (commandApdu.size == 5 && 
-                commandApdu[0] == CMD_GET_RESPONSE[0] && 
-                commandApdu[1] == CMD_GET_RESPONSE[1] && 
-                commandApdu[2] == CMD_GET_RESPONSE[2] && 
-                commandApdu[3] == CMD_GET_RESPONSE[3]) {
-
-                // Create a local copy of the pending response to avoid null checks
-                val currentPendingResponse = pendingResponse ?: run {
-                    Log.e(TAG, "No pending response to send")
-                    return RESP_UNKNOWN_CMD_SW
-                }
-                
-                Log.d(TAG, "Processing GET RESPONSE command")
-                // Extract response length from command
-                var responseLength = commandApdu[4].toUByte().toInt()
-                if (responseLength == 0) {
-                    responseLength = 256
-                }
-                Log.d(TAG, "Response length: $responseLength")
-
-                responseLength = minOf(responseLength, currentPendingResponse.size - pendingResponseOffset)
-
-                var responseBuffer = ByteArray(responseLength + 2)
-                currentPendingResponse.copyInto(responseBuffer, 0, pendingResponseOffset, pendingResponseOffset + responseLength)
-                pendingResponseOffset += responseLength
-                if (pendingResponseOffset >= currentPendingResponse.size) {
-                    // all data sent
-                    responseBuffer[responseBuffer.size - 2] = 0x90.toByte()
-                    responseBuffer[responseBuffer.size - 1] = 0x00.toByte()
-                } else if (currentPendingResponse.size - pendingResponseOffset <= 256) {
-                    // less than 256 bytes remaining
-                    responseBuffer[responseBuffer.size - 2] = 0x61.toByte()
-                    responseBuffer[responseBuffer.size - 1] = (currentPendingResponse.size - pendingResponseOffset).toByte()
-                } else {
-                    // more than 256 bytes remaining
-                    responseBuffer[responseBuffer.size - 2] = 0x61.toByte()
-                    responseBuffer[responseBuffer.size - 1] = 0x00.toByte()
-                }
-                Log.d(TAG, "Sending response: ${bytesToHex(responseBuffer)}")
-                return responseBuffer
-            }
-
-            // Check for user not registered command
-            if (commandApdu.size >= 4 && 
-                commandApdu[0] == CMD_USER_NOT_REGISTERED[0] && 
-                commandApdu[1] == CMD_USER_NOT_REGISTERED[1] && 
-                commandApdu[2] == CMD_USER_NOT_REGISTERED[2] && 
-                commandApdu[3] == CMD_USER_NOT_REGISTERED[3]) {
-                Log.d(TAG, "Processing user not registered command")
-                showNotRegisteredDialog()
-                return RESP_SUCCESS_SW
-            }
-
-            // No support for read/write commands
-            
-            // If not a registration command, check for other commands
-            Log.w(TAG, "Unknown command: ${bytesToHex(commandApdu)}")
-            return RESP_UNKNOWN_CMD_SW
-        } catch (e: Exception) {
-            Log.e(TAG, "Error processing command", e)
-            return byteArrayOf(0x6F.toByte(), 0x00.toByte())
-        }
-    }
-
-    private fun bytesToHex(bytes: ByteArray): String {
-        val sb = StringBuilder()
-        for (b in bytes) {
-            sb.append(String.format("%02X", b))
-        }
-        return sb.toString()
-    }
-
-    override fun onDeactivated(reason: Int) {
-        deviceUuid = null
+    private fun clearTransientState() {
         pendingResponse = null
         pendingResponseOffset = 0
-        authDatabase.close()
-        Log.d(TAG, "CardEmulationService onDeactivated, reason: $reason")
+        resetIncomingRequest()
     }
-} 
+
+    private fun resetIncomingRequest() {
+        incomingInstruction = null
+        incomingSequence = 0
+        incomingPayload.reset()
+    }
+
+    companion object {
+        private val AID = byteArrayOf(
+            0xF0.toByte(),
+            0x64.toByte(),
+            0x65.toByte(),
+            0x2E.toByte(),
+            0x69.toByte(),
+            0x6E.toByte(),
+            0x66.toByte(),
+            0x6F.toByte(),
+            0x72.toByte(),
+            0x6E.toByte(),
+            0x61.toByte(),
+            0x75.toByte(),
+            0x74.toByte(),
+            0x69.toByte(),
+            0x6B.toByte(),
+        )
+        private val PROPRIETARY_CLASS: Byte = 0xD0.toByte()
+        private const val INS_REGISTRATION: Byte = 0x01
+        private const val INS_AUTHENTICATION: Byte = 0x02
+        private const val INS_USER_NOT_REGISTERED: Byte = 0x03
+        private const val INS_REGISTRATION_ACK: Byte = 0x04
+        private const val FLAG_FINAL = 0x00
+        private const val FLAG_MORE = 0x80
+        private const val MAX_INCOMING_PAYLOAD_BYTES = 16 * 1024
+
+        private val RESP_SUCCESS = byteArrayOf(0x90.toByte(), 0x00.toByte())
+        private val RESP_UNKNOWN_COMMAND = byteArrayOf(0x6D.toByte(), 0x00.toByte())
+        private val RESP_WRONG_LENGTH = byteArrayOf(0x67.toByte(), 0x00.toByte())
+        private val RESP_INVALID_DATA = byteArrayOf(0x6A.toByte(), 0x80.toByte())
+        private val RESP_CONDITIONS_NOT_SATISFIED =
+            byteArrayOf(0x69.toByte(), 0x85.toByte())
+        private val RESP_SECURITY_STATUS_NOT_SATISFIED =
+            byteArrayOf(0x69.toByte(), 0x82.toByte())
+        private val RESP_BIOMETRIC_REQUIRED = byteArrayOf(0x63.toByte(), 0x00.toByte())
+        private val RESP_UNAUTHORIZED = byteArrayOf(0x69.toByte(), 0x83.toByte())
+        private val RESP_ERROR = byteArrayOf(0x6F.toByte(), 0x00.toByte())
+    }
+}

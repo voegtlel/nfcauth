@@ -8,28 +8,60 @@
     <string name="biometric_prompt_title">Confirm Authentication</string>
     <string name="biometric_prompt_subtitle">Please authenticate to confirm your identity</string>
     <string name="service_name">NFC MFC Authentication Service</string>
-    <string name="no_readers_registered">No readers registered yet. Start registration in reader</string>
-    
-    <!-- BiometricPromptActivity strings -->
+    <string name="no_readers_registered">No services registered. Start registration at a compatible NFC service.</string>
+
     <string name="unlock_device_title">Unlock Device</string>
     <string name="unlock_device_message">Please unlock your device and hold it at the reader again</string>
     <string name="hold_device_title">Hold Device</string>
     <string name="hold_device_message">Please hold your device at the reader again to complete biometric authentication</string>
     <string name="dialog_button_ok">OK</string>
     <string name="dialog_button_cancel">Cancel</string>
+    <string name="dialog_button_close">Close</string>
 
-    <!-- Registration strings -->
-    <string name="reader_info_format">Reader: %1$s\nID: %2$s\nUser ID: %3$s</string>
-    <string name="reader_info_with_name_format">Reader: %1$s\nID: %2$s\nUser ID: %3$s\nUser Name: %4$s</string>
-    <string name="registration_username_error">Please enter a user name</string>
-    <string name="registration_waiting_message">Hold the device to the reader for finishing the registration</string>
-    <string name="registration_success">Registration successful!</string>
-    <string name="registration_button_cancel">Cancel Registration</string>
+    <string name="registration_title">Register with %1$s?</string>
+    <string name="registration_recipient">Recipient: %1$s\nOperator: %2$s\nService ID: %3$s\nPrivacy notice: %4$s</string>
+    <string name="registration_identity_verified">Verified service identity\nSigning-key fingerprint: %1$s</string>
+    <string name="registration_identity_unverified">Unverified service identity. The manifest signature is valid, but the app developer has not verified who controls this signing key. Continue only if you recognize the service.\nSigning-key fingerprint: %1$s</string>
+    <string name="registration_requested_data_heading">This service requests exactly:</string>
+    <string name="registration_encryption_confirmation">The approved data will be authenticated and encrypted directly to this service. No developer or intermediary can decrypt it.\nService encryption-key fingerprint: %1$s</string>
+    <string name="registration_reconfirmation_reason">New confirmation is required because: %1$s.</string>
+    <string name="registration_alias_hint">Alias for this service</string>
+    <string name="registration_alias_error">Enter an alias to share with this service.</string>
+    <string name="registration_view_privacy_policy">View privacy policy</string>
+    <string name="registration_view_deletion_instructions">View deletion instructions</string>
+    <string name="registration_policy_checking">Checking that the HTTPS privacy policy is accessible…</string>
+    <string name="registration_policy_accessible">Privacy policy is accessible. Agreeing authorizes only the transfer listed above.</string>
+    <string name="registration_policy_inaccessible">Registration refused: the service privacy policy is not accessible over HTTPS.</string>
+    <string name="registration_button_agree">Agree and register</string>
+    <string name="registration_button_cancel">Cancel registration</string>
     <string name="registration_button_close">Close</string>
+    <string name="registration_waiting_message">Approved. Hold the phone to the same reader again to send the encrypted registration and receive its authenticated acknowledgement.</string>
+    <string name="registration_success">Registration complete</string>
+    <string name="registration_success_detail">The service registration and service-specific keys are now stored locally. You can review the service policy or delete the local registration from the main screen.</string>
+    <string name="registration_refused">Registration refused</string>
+    <string name="registration_invalid_manifest">The service registration manifest is invalid.</string>
+    <string name="registration_secure_transfer_failed">The secure registration payload could not be prepared. No data was transmitted.</string>
+    <string name="registration_link_open_failed">No app is available to open this link.</string>
 
-    <!-- Registration Dialog strings -->
-    <string name="registration_user_name_hint">User Name</string>
-    <string name="registration_button_confirm">Confirm</string>
+    <plurals name="registered_service_count">
+        <item quantity="one">%d service registered</item>
+        <item quantity="other">%d services registered</item>
+    </plurals>
+    <string name="service_list_verified">%1$s · Verified identity</string>
+    <string name="service_list_unverified">%1$s · Unverified identity</string>
+    <string name="service_details_operator">Operator: %1$s</string>
+    <string name="service_details_verified">Identity status: Verified</string>
+    <string name="service_details_unverified">Identity status: Unverified</string>
+    <string name="service_details_notice">Privacy notice version: %1$s</string>
+    <string name="service_details_approved">Approved: %1$s</string>
+    <string name="service_details_data_heading">Approved data and purposes:</string>
+    <string name="service_details_encryption_fingerprint">Service encryption-key fingerprint:</string>
+    <string name="delete_local_registration">Delete local registration</string>
+    <string name="delete_local_registration_title">Delete local service data?</string>
+    <string name="delete_local_registration_message">This deletes the local registration, service-specific signing key, and encryption secret for %1$s. It does not delete data already held by the service; use its deletion instructions for that copy.</string>
+    <string name="delete_local_registration_success">Local registration and keys deleted.</string>
+    <string name="delete_local_registration_failed">The local registration could not be fully deleted.</string>
 
-    <string name="show_public_key">Show Public Key</string>
+    <string name="app_privacy_policy_title">App privacy policy</string>
+    <string name="app_privacy_policy_text">NFC MFC Authenticator Privacy Policy\n\nEffective: July 29, 2026\nDeveloper: Lukas Voegtle\n\nOverview\n\nThe developer operates no authentication backend and does not receive user registration or authentication data. The app contains no advertising, analytics, or tracking SDK. It stores credentials and independent service metadata locally on the device and transfers data only when the user deliberately presents the phone to an NFC service.\n\nData stored locally\n\nFor each approved service, the app stores the service identity and verification status, approved data fields and purposes, privacy-policy URL and notice version, deletion instructions, cryptographic key fingerprints, approval time, a random service-specific user ID, an optional alias, and service-specific cryptographic credentials. Identifiers and signing keys are never reused between services.\n\nTransfers to independent services\n\nBefore registration, the app shows the recipient, operator, identity-verification status, exact requested fields, purpose of every field, policy and deletion links, and encryption identity. Registration occurs only after “Agree and register.” All identifying and authentication payloads are authenticated and end-to-end encrypted directly to the selected service. The developer and intermediaries cannot decrypt them. A service receives no fields beyond those disclosed and approved.\n\nThe app makes a limited HTTPS request to confirm that a service-provided privacy-policy URL is accessible. The website operator may receive ordinary network metadata such as an IP address as part of that request.\n\nIndependent service responsibility\n\nEach recipient service independently controls data after decryption. Its own privacy policy and deletion instructions govern that processing. The app performs technical validation and accurately presents service-provided information, but does not certify an unverified service or guarantee that its policy is legally sufficient.\n\nRetention, backup, and deletion\n\nLocal registrations remain until the user deletes them in the app, clears app storage, or uninstalls the app. Android backup is disabled for app data. Deleting a registration removes its local record, service-specific signing key, and encryption secret. Local deletion does not delete a recipient service’s copy; users should follow the service’s displayed deletion instructions.\n\nSecurity and logs\n\nPrivate signing keys are held by Android Keystore. Stored service secrets are encrypted locally. Protocol version 1 plaintext traffic is rejected. Logs do not contain names, user or service identifiers, keys, plaintext payloads, or decrypted registration/authentication data.\n\nPolicy changes and contact\n\nMaterial changes will update this policy and its effective date. Questions or privacy requests for the app developer can be submitted at https://github.com/voegtlel/nfcauth/issues. Requests concerning a recipient’s data must be directed to that service using its deletion link or contact.\n\nPublished policy: https://voegtlel.github.io/nfcauth/privacy-policy.html</string>
 </resources>

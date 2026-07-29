@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>NFC MFC Authenticator Privacy Policy</title>
+  <style>
+    :root { font: 17px/1.6 system-ui, sans-serif; color-scheme: light dark; }
+    body { max-width: 52rem; margin: 0 auto; padding: 2rem 1.25rem 4rem; }
+    h1 { line-height: 1.2; }
+    h2 { margin-top: 2rem; line-height: 1.3; }
+    .meta { color: #666; }
+    @media (prefers-color-scheme: dark) { .meta { color: #bbb; } }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>NFC MFC Authenticator Privacy Policy</h1>
+    <p class="meta"><strong>Effective:</strong> July 29, 2026<br>
+      <strong>Developer:</strong> Lukas Voegtle</p>
+
+    <h2>Overview</h2>
+    <p>The developer operates no authentication backend and does not receive user
+      registration or authentication data. The app contains no advertising,
+      analytics, or tracking SDK. It stores credentials and independent service
+      metadata locally on the device and transfers data only when the user
+      deliberately presents the phone to an NFC service.</p>
+
+    <h2>Data stored locally</h2>
+    <p>For each approved service, the app stores the service identity and
+      verification status, approved data fields and purposes, privacy-policy URL
+      and notice version, deletion instructions, cryptographic key fingerprints,
+      approval time, a random service-specific user ID, an optional alias, and
+      service-specific cryptographic credentials. Identifiers and signing keys
+      are never reused between services.</p>
+
+    <h2>Transfers to independent services</h2>
+    <p>Before registration, the app shows the recipient, operator,
+      identity-verification status, exact requested fields, purpose of every
+      field, policy and deletion links, and encryption identity. Registration
+      occurs only after <strong>Agree and register</strong>. All identifying and
+      authentication payloads are authenticated and end-to-end encrypted
+      directly to the selected service. The developer and intermediaries cannot
+      decrypt them. A service receives no fields beyond those disclosed and
+      approved.</p>
+    <p>The app makes a limited HTTPS request to confirm that a service-provided
+      privacy-policy URL is accessible. The website operator may receive ordinary
+      network metadata such as an IP address as part of that request.</p>
+
+    <h2>Independent service responsibility</h2>
+    <p>Each recipient service independently controls data after decryption. Its
+      own privacy policy and deletion instructions govern that processing. The
+      app performs technical validation and accurately presents service-provided
+      information, but does not certify an unverified service or guarantee that
+      its policy is legally sufficient.</p>
+
+    <h2>Retention, backup, and deletion</h2>
+    <p>Local registrations remain until the user deletes them in the app, clears
+      app storage, or uninstalls the app. Android backup is disabled for app
+      data. Deleting a registration removes its local record, service-specific
+      signing key, and encryption secret. Local deletion does not delete a
+      recipient service’s copy; users should follow the service’s displayed
+      deletion instructions.</p>
+
+    <h2>Security and logs</h2>
+    <p>Private signing keys are held by Android Keystore. Stored service secrets
+      are encrypted locally. Protocol version 1 plaintext traffic is rejected.
+      Logs do not contain names, user or service identifiers, keys, plaintext
+      payloads, or decrypted registration/authentication data.</p>
+
+    <h2>Policy changes and contact</h2>
+    <p>Material changes will update this policy and its effective date. Questions
+      or privacy requests for the app developer can be submitted through the
+      <a href="https://github.com/voegtlel/nfcauth/issues">project issue tracker</a>.
+      Requests concerning a recipient’s data must be directed to that service
+      using its deletion link or contact.</p>
+  </main>
+</body>
+</html>

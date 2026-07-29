@@ -1,130 +1,172 @@
 package de.infornautik.nfcauth
 
 import android.app.AlertDialog
-import android.app.PendingIntent
 import android.content.Intent
-import android.nfc.NfcAdapter
 import android.os.Bundle
-import android.util.Log
-import android.util.Base64
+import android.text.SpannableStringBuilder
+import android.text.Spanned
+import android.text.method.LinkMovementMethod
+import android.text.style.URLSpan
 import android.widget.Button
-import android.widget.EditText
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
-import java.security.KeyStore
-import java.util.UUID
+import java.text.DateFormat
+import java.util.Date
 
 class MainActivity : AppCompatActivity() {
     private lateinit var authDatabase: AuthDatabase
     private lateinit var keyManager: KeyManager
-    private var deviceUuid: String? = null
     private lateinit var statusText: TextView
-    private lateinit var readersRecyclerView: RecyclerView
     private lateinit var readersAdapter: ReadersAdapter
-    private lateinit var swipeRefresh: SwipeRefreshLayout
-    private lateinit var infoButton: Button
-
-    companion object {
-        private const val TAG = "MainActivity"
-    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
-        // Initialize views
         statusText = findViewById(R.id.statusText)
-        readersRecyclerView = findViewById(R.id.readersRecyclerView)
-        swipeRefresh = findViewById(R.id.swipeRefresh)
-        infoButton = findViewById(R.id.infoButton)
-
-        // Initialize database
         authDatabase = AuthDatabase(this)
-        
-        // Initialize KeyManager
         keyManager = KeyManager(this)
-        Log.d(TAG, "KeyManager initialized")
 
-        // Setup RecyclerView
-        readersAdapter = ReadersAdapter { reader ->
-            showDeleteConfirmationDialog(reader)
-        }
-        readersRecyclerView.apply {
+        readersAdapter = ReadersAdapter(::showServiceDetails)
+        findViewById<RecyclerView>(R.id.readersRecyclerView).apply {
             layoutManager = LinearLayoutManager(this@MainActivity)
             adapter = readersAdapter
         }
-
-        // Setup SwipeRefreshLayout
+        val swipeRefresh = findViewById<SwipeRefreshLayout>(R.id.swipeRefresh)
         swipeRefresh.setOnRefreshListener {
             loadReaders()
             swipeRefresh.isRefreshing = false
         }
-
-        // Setup info button
-        infoButton.setOnClickListener {
-            showPublicKey()
+        findViewById<Button>(R.id.infoButton).setOnClickListener {
+            startActivity(Intent(this, AppPrivacyPolicyActivity::class.java))
         }
-
-        // Load initial data
         loadReaders()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (::authDatabase.isInitialized) loadReaders()
+    }
+
+    override fun onDestroy() {
+        authDatabase.close()
+        super.onDestroy()
     }
 
     private fun loadReaders() {
         val readers = authDatabase.getAllReaders()
         readersAdapter.submitList(readers)
-        updateStatusText("${readers.size} reader(s) registered")
+        statusText.text = resources.getQuantityString(
+            R.plurals.registered_service_count,
+            readers.size,
+            readers.size,
+        )
     }
 
-    private fun showDeleteConfirmationDialog(reader: ReaderInfo) {
-        AlertDialog.Builder(this)
-            .setTitle("Delete Reader")
-            .setMessage("Are you sure you want to delete reader '${reader.readerName}'?")
-            .setPositiveButton("Delete") { _, _ ->
-                deleteReader(reader)
+    private fun showServiceDetails(service: ReaderInfo) {
+        val details = SpannableStringBuilder().apply {
+            append(getString(R.string.service_details_operator, service.operatorName))
+            append("\n")
+            append(
+                if (service.identityVerified) {
+                    getString(R.string.service_details_verified)
+                } else {
+                    getString(R.string.service_details_unverified)
+                },
+            )
+            append("\n")
+            append(getString(R.string.service_details_notice, service.privacyNoticeVersion))
+            append("\n")
+            append(
+                getString(
+                    R.string.service_details_approved,
+                    DateFormat.getDateTimeInstance().format(Date(service.approvedAt)),
+                ),
+            )
+            append("\n\n")
+            append(getString(R.string.service_details_data_heading))
+            service.requestedFields.forEach { field ->
+                append("\n• ")
+                append(ServiceManifestParser.displayName(field))
+                append(": ")
+                append(service.purposes[field].orEmpty())
             }
-            .setNegativeButton("Cancel", null)
+            append("\n\n")
+            append(getString(R.string.service_details_encryption_fingerprint))
+            append("\n")
+            append(service.encryptionKeyFingerprint)
+            append("\n\n")
+            appendLink(
+                getString(R.string.registration_view_privacy_policy),
+                service.privacyPolicyUrl,
+            )
+            append("\n")
+            appendLink(
+                getString(R.string.registration_view_deletion_instructions),
+                deletionUri(service.deletionUrlOrContact),
+            )
+        }
+
+        val dialog = AlertDialog.Builder(this)
+            .setTitle(service.serviceName)
+            .setMessage(details)
+            .setPositiveButton(R.string.dialog_button_close, null)
+            .setNegativeButton(R.string.delete_local_registration) { _, _ ->
+                confirmLocalDeletion(service)
+            }
+            .create()
+        dialog.setOnShowListener {
+            dialog.findViewById<TextView>(android.R.id.message)?.movementMethod =
+                LinkMovementMethod.getInstance()
+        }
+        dialog.show()
+    }
+
+    private fun confirmLocalDeletion(service: ReaderInfo) {
+        AlertDialog.Builder(this)
+            .setTitle(R.string.delete_local_registration_title)
+            .setMessage(
+                getString(
+                    R.string.delete_local_registration_message,
+                    service.serviceName,
+                ),
+            )
+            .setPositiveButton(R.string.delete_local_registration) { _, _ ->
+                deleteLocalRegistration(service)
+            }
+            .setNegativeButton(R.string.dialog_button_cancel, null)
             .show()
     }
 
-    private fun deleteReader(reader: ReaderInfo) {
+    private fun deleteLocalRegistration(service: ReaderInfo) {
         try {
-            authDatabase.deleteReader(reader.readerId)
+            keyManager.deleteServiceCredentials(service.serviceId)
+            authDatabase.deleteReader(service.serviceId)
             loadReaders()
-            Toast.makeText(this, "Reader deleted successfully", Toast.LENGTH_SHORT).show()
-        } catch (e: Exception) {
-            Log.e(TAG, "Error deleting reader", e)
-            Toast.makeText(this, "Error deleting reader", Toast.LENGTH_SHORT).show()
+            Toast.makeText(
+                this,
+                R.string.delete_local_registration_success,
+                Toast.LENGTH_SHORT,
+            ).show()
+        } catch (_: Exception) {
+            Toast.makeText(
+                this,
+                R.string.delete_local_registration_failed,
+                Toast.LENGTH_SHORT,
+            ).show()
         }
     }
 
-    private fun updateStatusText(message: String) {
-        statusText.text = message
-        Log.d(TAG, "Status updated: $message")
+    private fun SpannableStringBuilder.appendLink(label: String, url: String) {
+        val start = length
+        append(label)
+        setSpan(URLSpan(url), start, length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
     }
 
-    private fun showPublicKey() {
-        try {
-            val publicKey = keyManager.getPublicKeyAsString()
-
-            AlertDialog.Builder(this)
-                .setTitle("Public Key")
-                .setMessage(publicKey)
-                .setPositiveButton("OK", null)
-                .show()
-        } catch (e: Exception) {
-            Log.e(TAG, "Error showing public key", e)
-            Toast.makeText(this, "Error showing public key", Toast.LENGTH_SHORT).show()
-        }
-    }
-
-    override fun onDestroy() {
-        Log.d(TAG, "onDestroy called")
-        super.onDestroy()
-        authDatabase.close()
-        Log.d(TAG, "Database closed")
-    }
-} 
+    private fun deletionUri(value: String): String =
+        if (value.contains("@") && !value.startsWith("mailto:")) "mailto:$value" else value
+}

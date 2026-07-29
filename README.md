@@ -1,165 +1,155 @@
-# NFC Authentication System
+# NFC MFC Authenticator
 
-A secure Android application that acts as an NFC tag for authentication, working in conjunction with a Python NFC reader. The system uses public-key cryptography for secure authentication.
+NFC MFC Authenticator is an Android host-card-emulation app and a reference
+Python reader for privacy-aware, service-specific authentication. The app has
+no developer-operated authentication backend, analytics, advertising, or
+tracking.
 
-## Features
+## Privacy model
 
-### Device Registration
-- Secure registration of Android devices with unique names
-- Generation of unique user IDs and key pairs for each device
-- Local SQLite database storage for device information
-- User-friendly registration dialog interface
-- Real-time status updates during registration process
+Independent NFC services control the data they receive. The app is responsible
+for validating each service's signed registration manifest, showing the user a
+specific transfer disclosure, and securely transferring only the approved
+fields.
 
-### Authentication
-- Fast and secure NFC-based device authentication
-- Public-key cryptography for secure authentication
-- Timestamp-based authentication data
-- Support for multiple registered devices
-- Background NFC service for continuous operation
+Before registration the app displays:
 
-### Security
-- Uses Android KeyStore for secure key storage
-- Implements asymmetric encryption for authentication
-- Unique user IDs for each registered device
-- Secure storage of public keys
-- Protected NFC communication
+- the recipient service and operator;
+- whether the service signing identity is verified or unverified;
+- every requested field and its purpose;
+- the service privacy policy and deletion instructions;
+- the service signing and encryption identities; and
+- confirmation that identifying data is encrypted directly to the service.
 
-### Workflows
+The affirmative **Agree and register** action authorizes only that displayed
+transfer. A changed operator, scope, purpose, privacy notice, signing identity,
+or encryption identity is highlighted and requires confirmation again. Routine
+authentication inside an approved scope does not repeatedly prompt.
 
-Data structures on the reader (the Python NFC reader app):
- - Database with the user data
-   - Public key of the user registered reader
-   - Name of the user
-   - UID of the user
- - Config:
-   - It's own human readable name
-   - A unique identifier (UID)
-Data structures on the Android App:
- - Database with registered readers
-   - The reader UID
-   - The reader name
-   - Own UID for this reader
-   - Own name for this reader
- - Own private/public key for this reader (using a post-quantum algorithm)
+Each service receives a distinct random user ID and a distinct P-256
+authentication signing key. Keys and identifiers are never reused across
+services.
 
-#### Registration Workflow
-1. The reader is put into registration mode (here: run with "register" cmd argument)
-2. The user hold the android device to the NFC reader
-3. During the initial exchange, the android app will detect that the reader is in registration mode, and receive name and uid for the reader.
-4. The device may be removed now.
-5. The android app will open and prompt the user with their name and generate a private/public key pair and random userid
-6. The android app will, after confirmation, prompt the user to hold the device at the reader again.
-7. (consequently, the reader will send it's identification again, which must match what was previously sent)
-8. The app sends the name, user id and public key to the reader
-9. A trial authentication with those credentials is performed (show info to the user in the app).
-10. If successful, the android app and reader will each store the corresponding information in their databases
+## Cryptographic protocol
 
-#### Authentication Workflow
-1. The reader is in authentication mode (here: run with "authenticate" cmd argument)
-2. The android device is held to the reader
-3. The reader sends it's uid and name to the app with a timestamp
-4. The android app fetches the registered entry for the readers uid from it's database and gets the public/private key
-5. If valid, the app requests biometric authentication if available
-6. The android app computes a signature for the reader's request and sends that with the user's uid to the reader
-7. The reader verifies the signature using the known public key for the app user and if valid, triggers the user authentication
+Protocol version 2 has two encryption layers:
 
-### Technical Details
+1. Every NFC presentation starts a fresh ephemeral P-256 ECDH session. Both
+   sides derive an AES-256-GCM key with HKDF-SHA-256. All application payloads,
+   including the signed manifest, are authenticated and encrypted on the NFC
+   transport.
+2. Registration data is additionally encrypted to the service's signed,
+   long-term P-256 encryption key. The derived service session secret protects
+   all later authentication requests and responses. This makes the selected
+   service—not an NFC relay or the app developer—the decryption endpoint.
 
-#### NFC Communication
-- Android device emulates an NFC tag
-- NDEF message format for data exchange
-- Foreground dispatch system for priority handling
-- Wake lock implementation for reliable background operation with minimal user annoyance
+Version 1 plaintext traffic is rejected. Large encrypted manifests are split
+across sequenced short APDUs and reassembled before authenticated decryption.
 
-## Requirements
+The reader submits this signed manifest:
 
-### Android Device
-- Android 9.0 (API level 28) or higher
-- NFC hardware support
-- Biometric hardware (optional)
-
-### Python NFC Reader
-- Python 3.7+
-- NFC reader hardware (e.g., pn532)
-- Required Python packages:
-  - RPi.GPIO
-  - adafruit_pn532
-  - SQLite3
-
-### Development
-- Android Studio Arctic Fox or newer
-- Kotlin 1.5+
-- Gradle 7.0+
-- Android SDK 28+
-
-## Installation
-
-### Android App
-1. Clone the repository:
-```bash
-git clone https://github.com/yourusername/androidauth.git
+```text
+service_id
+service_name
+operator_name
+privacy_policy_url
+privacy_notice_version
+requested_fields
+purposes
+data_deletion_url_or_contact
+encryption_public_key
+registration_nonce
+privacy_notice_material_change
 ```
 
-2. Open the project in Android Studio
+The signature binds the encryption key and every disclosure field to the
+presented service signing key. A valid self-signature proves integrity but not
+who operates the service. The Android app labels a service **Verified** only
+when its signing-key fingerprint is pinned in `ServiceTrustRegistry`; otherwise
+it is clearly labeled **Unverified**.
 
-3. Build and run:
+## Local data and deletion
+
+The Android app stores service metadata, approved scope, a service-specific user
+ID, an optional alias, fingerprints, and approval time in its local SQLite
+database. Private authentication keys stay in Android Keystore. Service session
+secrets are stored through Android encrypted preferences. Android backup is
+disabled.
+
+Tap a registered service to revisit its privacy policy, notice version, approved
+fields and purposes, encryption fingerprint, and deletion instructions. **Delete
+local registration** removes the local database record, service-specific
+signing key, and service secret. It does not delete the service's copy; use the
+displayed service deletion instructions for that.
+
+Upgrading from protocol version 1 intentionally removes legacy registrations
+because their global signing key and unauthenticated plaintext protocol cannot
+be migrated safely. Users must approve a new service-specific registration.
+
+## App privacy policy
+
+The repository contains the app-level policy at
+[`docs/privacy-policy.html`](docs/privacy-policy.html), and the same policy is
+available inside the Android app.
+
+To publish it for Google Play:
+
+1. In GitHub, open **Settings → Pages**.
+2. Choose **Deploy from a branch**.
+3. Select the release branch (normally `main`) and the `/docs` folder.
+4. After deployment, enter
+   `https://voegtlel.github.io/nfcauth/privacy-policy.html` in Play Console's
+   privacy-policy field.
+
+Verify the public URL after every policy deployment. It must remain active,
+publicly accessible, non-geofenced, readable without JavaScript, and not be a
+PDF. The developer contact mechanism in the policy is the repository issue
+tracker.
+
+## Build the Android app
+
+Requirements:
+
+- JDK 17
+- Android SDK 36
+- Gradle 8.11.1
+
 ```bash
-./gradlew installDebug
+gradle :app:testDebugUnitTest
+gradle :app:lint
+gradle :app:bundleRelease
 ```
 
-### Python NFC Reader
-1. Install required Python packages:
+Release builds enable R8 and embed the deobfuscation mapping in the Android App
+Bundle. Release signing must still be supplied through a secure local or CI
+configuration before uploading an AAB to Play Console.
+
+## Run the Python reference reader
+
+The Python reader requires Python 3.9+, the `cryptography` package, and the
+Adafruit PN532/Raspberry Pi dependencies declared in `python/pyproject.toml`.
+
 ```bash
-pip install RPi.GPIO MFRC522
+cd python
+uv sync
+uv run nfc-reader-auth register
+uv run nfc-reader-auth auth
 ```
 
-2. Connect the NFC reader hardware to your Raspberry Pi
+On first use, the reader creates a persistent P-256 service signing/encryption
+identity with private-file permissions. Configure the service operator,
+HTTPS privacy-policy URL, notice version, requested fields and purposes, and
+deletion contact before using it outside development.
 
-3. Run the Python script:
-```bash
-python nfc_reader.py
-```
+The service must retain its identity keys. Unexpected signing or encryption key
+changes are shown to the user and require a new confirmation.
 
-## Usage
+## Logging
 
-## Architecture
-
-### Components
-- `MainActivity`: Handles user interface and device registration
-- `NfcService`: Background service for NFC tag emulation
-- `AuthDatabase`: SQLite database management
-- `KeyManager`: Cryptographic operations and key management
-- `nfc_reader.py`: Python script for NFC reader operations
-
-### Security Considerations
-- Keys are generated and stored in the Android KeyStore
-- Each device has a unique identifier and key pair
-- Authentication data includes timestamps
-- Background service runs with minimal privileges
-
-## Debugging
-
-The application includes comprehensive logging for debugging purposes:
-- NFC operations
-- Database transactions
-- Cryptographic operations
-- Registration process
-- Authentication flow
-
-Logs can be viewed using:
-```bash
-adb logcat | grep -E "MainActivity|NfcService"
-```
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Commit your changes
-4. Push to the branch
-5. Create a Pull Request
+Logs contain only operational state. They must never contain names, service or
+user IDs, cryptographic keys, raw APDUs, plaintext payloads, decrypted
+registration/authentication data, nonces, or signatures.
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details. 
+This project is licensed under the MIT License. See [LICENSE](LICENSE).

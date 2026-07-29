@@ -11,17 +11,17 @@ install-sdkman:
 
 install:
     # Install gradle
-    sdk install gradle 8.5 || echo "Run install-sdkman first"
+    sdk install gradle 8.11.1 || echo "Run install-sdkman first"
 
 # Build the release package
 build:
-    ./gradlew build
+    gradle build
 
 device-debug:
-    ./gradlew installDebug
+    gradle installDebug
 
 release:
-    ./gradlew release
+    gradle bundleRelease
 
 device-logs:
     adb logcat -s NfcService:D CardEmulationService:D libnfc_nci:D KeyManager:D -v time
