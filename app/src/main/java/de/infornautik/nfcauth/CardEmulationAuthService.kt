@@ -20,6 +20,7 @@ class CardEmulationAuthService : HostApduService() {
     private var incomingInstruction: Int? = null
     private var incomingSequence = 0
     private var incomingPayload = ByteArrayOutputStream()
+    private var activeTransportSession: NfcSessionCrypto? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -41,22 +42,27 @@ class CardEmulationAuthService : HostApduService() {
                 commandApdu.size < 5 -> RESP_WRONG_LENGTH
                 isGetResponseCommand(commandApdu) -> processGetResponse(commandApdu)
                 commandApdu[0] != PROPRIETARY_CLASS -> RESP_UNKNOWN_COMMAND
+                commandApdu[1] == INS_SESSION_INIT -> processSessionInit(commandApdu)
                 commandApdu[1] == INS_REGISTRATION -> processIncomingChunk(
                     commandApdu,
                     INS_REGISTRATION.toInt() and 0xff,
+                    PURPOSE_REGISTRATION,
                     ::computeRegistrationResponse,
                 )
                 commandApdu[1] == INS_AUTHENTICATION -> processIncomingChunk(
                     commandApdu,
                     INS_AUTHENTICATION.toInt() and 0xff,
+                    PURPOSE_AUTHENTICATION,
                     ::computeAuthenticationResponse,
                 )
                 commandApdu[1] == INS_REGISTRATION_ACK -> processIncomingChunk(
                     commandApdu,
                     INS_REGISTRATION_ACK.toInt() and 0xff,
+                    PURPOSE_REGISTRATION_COMPLETE,
                     ::computeRegistrationComplete,
                 )
-                commandApdu[1] == INS_USER_NOT_REGISTERED -> {
+                commandApdu[1] == INS_USER_NOT_REGISTERED &&
+                    activeTransportSession != null -> {
                     showNotRegisteredDialog()
                     RESP_SUCCESS
                 }
@@ -83,7 +89,10 @@ class CardEmulationAuthService : HostApduService() {
             verified.manifest.serviceId,
             verified.manifestHash,
         )?.let { response ->
-            return setPendingResponse(response.toString().toByteArray(Charsets.UTF_8))
+            return setEncryptedPendingResponse(
+                response.toString().toByteArray(Charsets.UTF_8),
+                PURPOSE_REGISTRATION,
+            )
         }
 
         // Do not let a second service replace a transfer the user already approved.
@@ -228,14 +237,20 @@ class CardEmulationAuthService : HostApduService() {
         }
         sessionKey.fill(0)
         vibrate()
-        return setPendingResponse(encryptedResponse.toString().toByteArray(Charsets.UTF_8))
+        return setEncryptedPendingResponse(
+            encryptedResponse.toString().toByteArray(Charsets.UTF_8),
+            PURPOSE_AUTHENTICATION,
+        )
     }
 
     private fun processIncomingChunk(
         command: ByteArray,
         instruction: Int,
+        purpose: String,
         onComplete: (String) -> ByteArray,
     ): ByteArray {
+        val transportSession = activeTransportSession
+            ?: return RESP_SECURITY_STATUS_NOT_SATISFIED
         val sequence = command[2].toInt() and 0xff
         val flags = command[3].toInt() and 0xff
         if (flags != FLAG_FINAL && flags != FLAG_MORE) {
@@ -271,9 +286,35 @@ class CardEmulationAuthService : HostApduService() {
             return RESP_SUCCESS
         }
 
-        val completePayload = incomingPayload.toByteArray()
+        val encryptedPayload = incomingPayload.toByteArray()
         resetIncomingRequest()
-        return onComplete(String(completePayload, Charsets.UTF_8))
+        val plaintext = try {
+            transportSession.decrypt(encryptedPayload, purpose)
+        } catch (_: Exception) {
+            return RESP_SECURITY_STATUS_NOT_SATISFIED
+        }
+        return try {
+            onComplete(String(plaintext, Charsets.UTF_8))
+        } finally {
+            plaintext.fill(0)
+        }
+    }
+
+    private fun processSessionInit(command: ByteArray): ByteArray {
+        if (command[2] != 0x00.toByte() || command[3] != 0x00.toByte()) {
+            return RESP_INVALID_DATA
+        }
+        val length = command[4].toInt() and 0xff
+        if (command.size != length + 5) return RESP_WRONG_LENGTH
+        return try {
+            val accepted = NfcSessionCrypto.accept(command.copyOfRange(5, command.size))
+            activeTransportSession = accepted.session
+            resetIncomingRequest()
+            setPendingResponse(accepted.response)
+        } catch (_: Exception) {
+            activeTransportSession = null
+            RESP_SECURITY_STATUS_NOT_SATISFIED
+        }
     }
 
     private fun processGetResponse(command: ByteArray): ByteArray {
@@ -320,12 +361,23 @@ class CardEmulationAuthService : HostApduService() {
         }
     }
 
+    private fun setEncryptedPendingResponse(plaintext: ByteArray, purpose: String): ByteArray {
+        val session = activeTransportSession
+            ?: return RESP_SECURITY_STATUS_NOT_SATISFIED
+        return try {
+            setPendingResponse(session.encrypt(plaintext, purpose))
+        } finally {
+            plaintext.fill(0)
+        }
+    }
+
     private fun processSelect(command: ByteArray): ByteArray {
         if (command.size < 5) return RESP_WRONG_LENGTH
         val aidLength = command[4].toInt() and 0xff
         if (command.size < 5 + aidLength) return RESP_WRONG_LENGTH
         val aid = command.copyOfRange(5, 5 + aidLength)
         return if (aid.contentEquals(AID)) {
+            clearTransientState()
             vibrate()
             RESP_SUCCESS
         } else {
@@ -370,6 +422,7 @@ class CardEmulationAuthService : HostApduService() {
     }
 
     private fun clearTransientState() {
+        activeTransportSession = null
         pendingResponse = null
         pendingResponseOffset = 0
         resetIncomingRequest()
@@ -400,6 +453,7 @@ class CardEmulationAuthService : HostApduService() {
             0x6B.toByte(),
         )
         private val PROPRIETARY_CLASS: Byte = 0xD0.toByte()
+        private const val INS_SESSION_INIT: Byte = 0x00
         private const val INS_REGISTRATION: Byte = 0x01
         private const val INS_AUTHENTICATION: Byte = 0x02
         private const val INS_USER_NOT_REGISTERED: Byte = 0x03
@@ -407,6 +461,9 @@ class CardEmulationAuthService : HostApduService() {
         private const val FLAG_FINAL = 0x00
         private const val FLAG_MORE = 0x80
         private const val MAX_INCOMING_PAYLOAD_BYTES = 16 * 1024
+        private const val PURPOSE_REGISTRATION = "registration"
+        private const val PURPOSE_AUTHENTICATION = "authentication"
+        private const val PURPOSE_REGISTRATION_COMPLETE = "registration-complete"
 
         private val RESP_SUCCESS = byteArrayOf(0x90.toByte(), 0x00.toByte())
         private val RESP_UNKNOWN_COMMAND = byteArrayOf(0x6D.toByte(), 0x00.toByte())

@@ -37,7 +37,9 @@ Protocol version 2 has two encryption layers:
 1. Every NFC presentation starts a fresh ephemeral P-256 ECDH session. Both
    sides derive an AES-256-GCM key with HKDF-SHA-256. All application payloads,
    including the signed manifest, are authenticated and encrypted on the NFC
-   transport.
+   transport. Independent 64-bit counters for each direction are included in
+   the AES-GCM authenticated data, so duplicate, skipped, or out-of-order
+   encrypted messages are rejected.
 2. Registration data is additionally encrypted to the service's signed,
    long-term P-256 encryption key. The derived service session secret protects
    all later authentication requests and responses. This makes the selected
@@ -137,9 +139,13 @@ uv run nfc-reader-auth auth
 ```
 
 On first use, the reader creates a persistent P-256 service signing/encryption
-identity with private-file permissions. Configure the service operator,
-HTTPS privacy-policy URL, notice version, requested fields and purposes, and
-deletion contact before using it outside development.
+identity in `.nfc_auth_service_identity.json` with private-file permissions and
+stores registrations in `auth.db`; both are ignored by Git. The default
+configuration is an explicitly non-production example whose notice is
+[`docs/example-service-privacy.html`](docs/example-service-privacy.html).
+Configure the service ID, name, operator, HTTPS privacy-policy URL, notice
+version, requested fields and purposes, and deletion contact before using it
+outside development.
 
 The service must retain its identity keys. Unexpected signing or encryption key
 changes are shown to the user and require a new confirmation.

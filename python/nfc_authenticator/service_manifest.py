@@ -3,15 +3,14 @@
 from __future__ import annotations
 
 import base64
-from dataclasses import dataclass
 import json
-from pathlib import Path
 import secrets
 import struct
+from dataclasses import dataclass
+from pathlib import Path
 
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
-
 
 PROTOCOL_VERSION = 2
 FIELD_ALIAS = "alias"
@@ -38,7 +37,7 @@ class ServiceIdentity:
     encryption_private_key: ec.EllipticCurvePrivateKey
 
     @classmethod
-    def load_or_create(cls, path: str | Path) -> "ServiceIdentity":
+    def load_or_create(cls, path: str | Path) -> ServiceIdentity:
         identity_path = Path(path)
         if identity_path.exists():
             document = json.loads(identity_path.read_text(encoding="utf-8"))
@@ -165,5 +164,5 @@ def _load_private_key(encoded: str) -> ec.EllipticCurvePrivateKey:
     if not isinstance(key, ec.EllipticCurvePrivateKey) or not isinstance(
         key.curve, ec.SECP256R1
     ):
-        raise ValueError("Service identity key must be a P-256 private key")
+        raise TypeError("Service identity key must be a P-256 private key")
     return key

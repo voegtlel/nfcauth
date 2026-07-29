@@ -6,11 +6,14 @@ import java.io.ByteArrayOutputStream
 import java.io.DataOutputStream
 import java.net.URI
 import java.nio.charset.StandardCharsets
+import java.security.AlgorithmParameters
 import java.security.KeyFactory
 import java.security.MessageDigest
 import java.security.PublicKey
 import java.security.Signature
 import java.security.interfaces.ECPublicKey
+import java.security.spec.ECGenParameterSpec
+import java.security.spec.ECParameterSpec
 import java.security.spec.X509EncodedKeySpec
 
 data class ServiceManifest(
@@ -302,10 +305,21 @@ object ServiceManifestParser {
         }
         val ecKey = key as? ECPublicKey
             ?: throw ManifestValidationException("The service $label key must be an EC key.")
-        if (ecKey.params.curve.field.fieldSize != 256) {
+        if (!isP256(ecKey.params)) {
             throw ManifestValidationException("The service $label key must use P-256.")
         }
         return ecKey
+    }
+
+    private fun isP256(parameters: ECParameterSpec): Boolean {
+        val expected = AlgorithmParameters.getInstance("EC").run {
+            init(ECGenParameterSpec("secp256r1"))
+            getParameterSpec(ECParameterSpec::class.java)
+        }
+        return parameters.curve == expected.curve &&
+            parameters.generator == expected.generator &&
+            parameters.order == expected.order &&
+            parameters.cofactor == expected.cofactor
     }
 
     private fun decodeBase64(value: String, label: String): ByteArray = try {

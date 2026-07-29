@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>Example NFC Service Privacy Notice</title>
+  <style>
+    :root { font: 17px/1.6 system-ui, sans-serif; color-scheme: light dark; }
+    body { max-width: 52rem; margin: 0 auto; padding: 2rem 1.25rem 4rem; }
+    h1 { line-height: 1.2; }
+    h2 { margin-top: 2rem; line-height: 1.3; }
+    .notice { border-left: .3rem solid #d97706; padding-left: 1rem; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Example NFC Service Privacy Notice</h1>
+    <p><strong>Notice version:</strong> 2026-07-29<br>
+      <strong>Operator:</strong> Example Service Operator</p>
+
+    <p class="notice">This notice belongs only to the repository's demonstration
+      reader configuration. Do not use the example identity or metadata for a
+      production service.</p>
+
+    <h2>Requested data and purposes</h2>
+    <p>The example service requests an alias to display a chosen name, a random
+      service-specific user ID to distinguish its local account, and a
+      service-specific public authentication key to verify authentication
+      signatures. It does not request any other field.</p>
+
+    <h2>Storage and transfer</h2>
+    <p>Registration and authentication payloads are authenticated and encrypted
+      directly between the phone and this example service. The reference reader
+      stores the approved fields, its service session secret, and registration
+      time in its local SQLite database. It includes no analytics or remote
+      backend.</p>
+
+    <h2 id="deletion">Deletion</h2>
+    <p>Delete the corresponding row from the reference reader's local
+      <code>registered_devices_v2</code> table, or delete its local
+      <code>auth.db</code> file to remove all example-service registrations.
+      Deleting the registration on the phone does not remove this service-side
+      copy.</p>
+
+    <h2>Contact</h2>
+    <p>Questions about this demonstration service can be submitted through the
+      <a href="https://github.com/voegtlel/nfcauth/issues">project issue tracker</a>.
+      A real service must replace this notice and contact with its own.</p>
+  </main>
+</body>
+</html>

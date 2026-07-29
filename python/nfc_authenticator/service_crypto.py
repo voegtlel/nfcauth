@@ -36,7 +36,7 @@ def decrypt_registration_response(
     if not isinstance(phone_public_key, ec.EllipticCurvePublicKey) or not isinstance(
         phone_public_key.curve, ec.SECP256R1
     ):
-        raise ValueError("Phone registration key must use P-256")
+        raise TypeError("Phone registration key must use P-256")
     shared_secret = encryption_private_key.exchange(ec.ECDH(), phone_public_key)
     session_key = HKDF(
         algorithm=hashes.SHA256(),

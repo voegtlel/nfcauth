@@ -4,6 +4,8 @@
 .DS_Store
 .venv
 .env
+.nfc_auth_service_identity.json
+auth.db
 /app/build
 gradlew
 gradlew.bat

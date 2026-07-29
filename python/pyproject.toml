@@ -24,7 +24,7 @@ dev = [
 ]
 
 [project.scripts]
-nfc-reader-auth = "nfc_reader:main"
+nfc-reader-auth = "nfc_authenticator.nfc_reader:main"
 
 [tool.setuptools]
 packages = ["nfc_authenticator"]
