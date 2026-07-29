@@ -12,30 +12,33 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     defaults:
       run:
         working-directory: .
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v7
     
     - name: Set up JDK 17
-      uses: actions/setup-java@v4
+      uses: actions/setup-java@v5
       with:
         java-version: '17'
         distribution: 'temurin'
         cache: 'gradle'
     
     - name: Setup Gradle
-      uses: gradle/actions/setup-gradle@v4
+      uses: gradle/actions/setup-gradle@v6
       with:
         gradle-version: '8.11.1'
+        cache-provider: basic
 
     - name: Build with Gradle
       run: gradle build
       
     - name: Upload Debug APK
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: app-debug
         path: app/build/outputs/apk/debug/app-debug.apk
@@ -44,7 +47,7 @@ jobs:
       run: gradle assembleRelease
       
     - name: Upload Release APK
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: app-release
         path: app/build/outputs/apk/release/app-release-unsigned.apk 
@@ -52,13 +55,84 @@ jobs:
     - name: Build .aab
       run: gradle bundleRelease
 
+    - name: Set up Python for Play upload
+      if: startsWith(github.ref, 'refs/tags/')
+      uses: actions/setup-python@v6
+      with:
+        python-version: '3.13'
+
+    - name: Install Google Play API client
+      if: startsWith(github.ref, 'refs/tags/')
+      run: >-
+        python -m pip install --upgrade
+        google-auth
+        google-api-python-client
+
+    - name: Decode Google Play service account
+      if: startsWith(github.ref, 'refs/tags/')
+      env:
+        GOOGLE_SERVICE_ACCOUNT_JSON_B64: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+        GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/play-service-account.json
+      run: >-
+        printf '%s' "$GOOGLE_SERVICE_ACCOUNT_JSON_B64" |
+        base64 --decode > "$GOOGLE_APPLICATION_CREDENTIALS"
+
     - name: Upload .aab to Internal Track
       id: upload_internal
-      uses: KevinRohn/github-action-upload-play-store@v1.0.0
       if: startsWith(github.ref, 'refs/tags/')
-      with:
-        service_account_json: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
-        package_name: "de.infornautik.nfcauth"
-        aab_file_path: "app/build/outputs/bundle/release/app-release.aab"
-        track: "internal"
-        release_status: "draft"
+      env:
+        GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/play-service-account.json
+        PLAY_PACKAGE_NAME: de.infornautik.nfcauth
+        PLAY_AAB_PATH: app/build/outputs/bundle/release/app-release.aab
+        PLAY_TRACK: internal
+        PLAY_RELEASE_STATUS: draft
+      shell: python
+      run: |
+        import os
+
+        from google.oauth2.service_account import Credentials
+        from googleapiclient.discovery import build
+        from googleapiclient.http import MediaFileUpload
+
+        package_name = os.environ["PLAY_PACKAGE_NAME"]
+        aab_path = os.environ["PLAY_AAB_PATH"]
+        track = os.environ["PLAY_TRACK"]
+        release_status = os.environ["PLAY_RELEASE_STATUS"]
+
+        credentials = Credentials.from_service_account_file(
+            os.environ["GOOGLE_APPLICATION_CREDENTIALS"],
+            scopes=["https://www.googleapis.com/auth/androidpublisher"],
+        )
+        publisher = build("androidpublisher", "v3", credentials=credentials)
+        edits = publisher.edits()
+        edit_id = edits.insert(body={}, packageName=package_name).execute()["id"]
+
+        bundle = edits.bundles().upload(
+            editId=edit_id,
+            packageName=package_name,
+            media_body=MediaFileUpload(
+                aab_path,
+                mimetype="application/octet-stream",
+                resumable=True,
+            ),
+        ).execute()
+
+        edits.tracks().update(
+            editId=edit_id,
+            packageName=package_name,
+            track=track,
+            body={
+                "releases": [{
+                    "versionCodes": [bundle["versionCode"]],
+                    "status": release_status,
+                }],
+            },
+        ).execute()
+        edits.commit(editId=edit_id, packageName=package_name).execute()
+        print(f"Uploaded version {bundle['versionCode']} to {track} as {release_status}.")
+
+    - name: Remove Google Play service account
+      if: always() && startsWith(github.ref, 'refs/tags/')
+      env:
+        GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/play-service-account.json
+      run: rm -f "$GOOGLE_APPLICATION_CREDENTIALS"
