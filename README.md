@@ -123,8 +123,20 @@ gradle :app:bundleRelease
 ```
 
 Release builds enable R8 and embed the deobfuscation mapping in the Android App
-Bundle. Release signing must still be supplied through a secure local or CI
-configuration before uploading an AAB to Play Console.
+Bundle. Tagged GitHub Actions builds sign the bundle with an upload keystore
+provided through these repository secrets:
+
+- `ANDROID_UPLOAD_KEYSTORE_B64`
+- `ANDROID_UPLOAD_KEYSTORE_PASSWORD`
+- `ANDROID_UPLOAD_KEY_ALIAS`
+- `ANDROID_UPLOAD_KEY_PASSWORD`
+
+The workflow decodes the keystore only into the runner's temporary directory,
+uses environment-sourced passwords with `jarsigner`, verifies the signed bundle,
+and removes the keystore after the job. The keystore and its passwords must
+never be committed. If an upload key is replaced, register its public
+certificate through Play Console's upload-key reset process before publishing
+another tag.
 
 ## Run the Python reference reader
 

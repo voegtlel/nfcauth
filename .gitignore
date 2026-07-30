@@ -6,6 +6,7 @@
 .env
 .nfc_auth_service_identity.json
 auth.db
+.local-signing/
 /app/build
 gradlew
 gradlew.bat

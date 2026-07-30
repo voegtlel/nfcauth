@@ -55,6 +55,44 @@ jobs:
     - name: Build .aab
       run: gradle bundleRelease
 
+    - name: Decode Android upload keystore
+      if: startsWith(github.ref, 'refs/tags/')
+      env:
+        ANDROID_UPLOAD_KEYSTORE_B64: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_B64 }}
+        ANDROID_UPLOAD_KEYSTORE: ${{ runner.temp }}/android-upload-keystore.jks
+      run: |
+        if [[ -z "$ANDROID_UPLOAD_KEYSTORE_B64" ]]; then
+          echo "::error::Missing ANDROID_UPLOAD_KEYSTORE_B64 repository secret."
+          exit 1
+        fi
+        printf '%s' "$ANDROID_UPLOAD_KEYSTORE_B64" |
+          base64 --decode > "$ANDROID_UPLOAD_KEYSTORE"
+
+    - name: Sign and verify .aab
+      if: startsWith(github.ref, 'refs/tags/')
+      env:
+        ANDROID_UPLOAD_KEYSTORE: ${{ runner.temp }}/android-upload-keystore.jks
+        ANDROID_UPLOAD_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_PASSWORD }}
+        ANDROID_UPLOAD_KEY_ALIAS: ${{ secrets.ANDROID_UPLOAD_KEY_ALIAS }}
+        ANDROID_UPLOAD_KEY_PASSWORD: ${{ secrets.ANDROID_UPLOAD_KEY_PASSWORD }}
+        PLAY_AAB_PATH: app/build/outputs/bundle/release/app-release.aab
+      run: |
+        if [[ -z "$ANDROID_UPLOAD_KEYSTORE_PASSWORD" ||
+              -z "$ANDROID_UPLOAD_KEY_ALIAS" ||
+              -z "$ANDROID_UPLOAD_KEY_PASSWORD" ]]; then
+          echo "::error::Missing one or more Android upload signing secrets."
+          exit 1
+        fi
+        jarsigner \
+          -keystore "$ANDROID_UPLOAD_KEYSTORE" \
+          -storepass:env ANDROID_UPLOAD_KEYSTORE_PASSWORD \
+          -keypass:env ANDROID_UPLOAD_KEY_PASSWORD \
+          -sigalg SHA256withRSA \
+          -digestalg SHA-256 \
+          "$PLAY_AAB_PATH" \
+          "$ANDROID_UPLOAD_KEY_ALIAS"
+        jarsigner -verify -verbose -certs "$PLAY_AAB_PATH"
+
     - name: Set up Python for Play upload
       if: startsWith(github.ref, 'refs/tags/')
       uses: actions/setup-python@v6
@@ -136,3 +174,9 @@ jobs:
       env:
         GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/play-service-account.json
       run: rm -f "$GOOGLE_APPLICATION_CREDENTIALS"
+
+    - name: Remove Android upload keystore
+      if: always() && startsWith(github.ref, 'refs/tags/')
+      env:
+        ANDROID_UPLOAD_KEYSTORE: ${{ runner.temp }}/android-upload-keystore.jks
+      run: rm -f "$ANDROID_UPLOAD_KEYSTORE"
