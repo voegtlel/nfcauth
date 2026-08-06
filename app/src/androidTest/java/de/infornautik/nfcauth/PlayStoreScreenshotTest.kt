@@ -1,10 +1,12 @@
 package de.infornautik.nfcauth
 
 import android.content.Context
+import android.content.ContentValues
 import android.content.Intent
 import android.graphics.Bitmap
 import android.os.Environment
 import android.os.SystemClock
+import android.provider.MediaStore
 import android.util.Base64
 import androidx.test.core.app.ActivityScenario
 import androidx.test.espresso.Espresso.onView
@@ -21,8 +23,6 @@ import org.json.JSONObject
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
-import java.io.File
-import java.io.FileOutputStream
 import java.security.KeyPairGenerator
 import java.security.Signature
 import java.security.spec.ECGenParameterSpec
@@ -31,17 +31,10 @@ import java.security.spec.ECGenParameterSpec
 class PlayStoreScreenshotTest {
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
     private val context: Context = instrumentation.targetContext
-    private lateinit var outputDirectory: File
 
     @Before
     fun prepareDeterministicState() {
         context.deleteDatabase("auth.db")
-        outputDirectory = File(
-            context.getExternalFilesDir(Environment.DIRECTORY_PICTURES),
-            "play-store",
-        )
-        outputDirectory.deleteRecursively()
-        check(outputDirectory.mkdirs()) { "Could not create screenshot output directory." }
     }
 
     @Test
@@ -95,9 +88,28 @@ class PlayStoreScreenshotTest {
         instrumentation.waitForIdleSync()
         SystemClock.sleep(350)
         val screenshot = checkNotNull(instrumentation.uiAutomation.takeScreenshot())
-        FileOutputStream(File(outputDirectory, "$name.png")).use { output ->
+        val values = ContentValues().apply {
+            put(MediaStore.Images.Media.DISPLAY_NAME, "$name.png")
+            put(MediaStore.Images.Media.MIME_TYPE, "image/png")
+            put(
+                MediaStore.Images.Media.RELATIVE_PATH,
+                "${Environment.DIRECTORY_PICTURES}/play-store",
+            )
+            put(MediaStore.Images.Media.IS_PENDING, 1)
+        }
+        val uri = checkNotNull(
+            context.contentResolver.insert(
+                MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+                values,
+            ),
+        )
+        context.contentResolver.openOutputStream(uri).use { output ->
+            checkNotNull(output)
             check(screenshot.compress(Bitmap.CompressFormat.PNG, 100, output))
         }
+        values.clear()
+        values.put(MediaStore.Images.Media.IS_PENDING, 0)
+        context.contentResolver.update(uri, values, null, null)
         screenshot.recycle()
     }
 

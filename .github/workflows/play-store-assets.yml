@@ -68,9 +68,10 @@ jobs:
             adb shell am broadcast -a com.android.systemui.demo -e command clock -e hhmm 1000 || true
             adb shell am broadcast -a com.android.systemui.demo -e command battery -e level 100 -e plugged false || true
             adb shell am broadcast -a com.android.systemui.demo -e command notifications -e visible false || true
+            adb shell rm -rf /sdcard/Pictures/play-store
             gradle connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=de.infornautik.nfcauth.PlayStoreScreenshotTest
             mkdir -p "store-assets/screenshots/$SCREENSHOT_PROFILE"
-            adb pull /sdcard/Android/data/de.infornautik.nfcauth/files/Pictures/play-store/. "store-assets/screenshots/$SCREENSHOT_PROFILE/"
+            adb pull /sdcard/Pictures/play-store/. "store-assets/screenshots/$SCREENSHOT_PROFILE/"
 
       - name: Verify screenshot dimensions
         shell: python
