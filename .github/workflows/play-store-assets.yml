@@ -1,0 +1,131 @@
+name: Play Store Assets
+
+on:
+  workflow_dispatch:
+
+jobs:
+  screenshots:
+    name: ${{ matrix.profile }} screenshots
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - profile: phone-9x16
+            screen_size: 1080x1920
+            density: 420
+          - profile: tablet-7-inch
+            screen_size: 800x1280
+            density: 213
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          java-version: '17'
+          distribution: temurin
+          cache: gradle
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          gradle-version: '8.11.1'
+          cache-provider: basic
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' |
+            sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Capture screenshots
+        uses: reactivecircus/android-emulator-runner@v2.38.0
+        env:
+          SCREENSHOT_PROFILE: ${{ matrix.profile }}
+          SCREEN_SIZE: ${{ matrix.screen_size }}
+          SCREEN_DENSITY: ${{ matrix.density }}
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          profile: pixel_2
+          disable-animations: true
+          emulator-options: >-
+            -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio
+            -no-boot-anim -camera-back none
+          script: |
+            adb shell wm size "$SCREEN_SIZE"
+            adb shell wm density "$SCREEN_DENSITY"
+            adb shell settings put system font_scale 1.0
+            adb shell settings put secure show_ime_with_hard_keyboard 0
+            adb shell settings put global sysui_demo_allowed 1
+            adb shell am broadcast -a com.android.systemui.demo -e command enter || true
+            adb shell am broadcast -a com.android.systemui.demo -e command clock -e hhmm 1000 || true
+            adb shell am broadcast -a com.android.systemui.demo -e command battery -e level 100 -e plugged false || true
+            adb shell am broadcast -a com.android.systemui.demo -e command notifications -e visible false || true
+            gradle connectedDebugAndroidTest \
+              -Pandroid.testInstrumentationRunnerArguments.class=de.infornautik.nfcauth.PlayStoreScreenshotTest
+            mkdir -p "store-assets/screenshots/$SCREENSHOT_PROFILE"
+            adb pull \
+              /sdcard/Android/data/de.infornautik.nfcauth/files/Pictures/play-store/. \
+              "store-assets/screenshots/$SCREENSHOT_PROFILE/"
+
+      - name: Verify screenshot dimensions
+        shell: python
+        env:
+          SCREENSHOT_PROFILE: ${{ matrix.profile }}
+          EXPECTED_SIZE: ${{ matrix.screen_size }}
+        run: |
+          import os
+          import struct
+          from pathlib import Path
+
+          output = Path("store-assets/screenshots") / os.environ["SCREENSHOT_PROFILE"]
+          screenshots = sorted(output.glob("*.png"))
+          if len(screenshots) != 7:
+              raise SystemExit(f"Expected 7 screenshots, found {len(screenshots)}")
+          expected = tuple(map(int, os.environ["EXPECTED_SIZE"].split("x")))
+          for screenshot in screenshots:
+              with screenshot.open("rb") as handle:
+                  signature = handle.read(24)
+              size = struct.unpack(">II", signature[16:24])
+              if size != expected:
+                  raise SystemExit(f"{screenshot}: expected {expected}, found {size}")
+              print(f"{screenshot}: {size[0]}x{size[1]}")
+
+      - name: Upload screenshots
+        uses: actions/upload-artifact@v7
+        with:
+          name: play-store-${{ matrix.profile }}
+          path: store-assets/screenshots/${{ matrix.profile }}/*.png
+          if-no-files-found: error
+
+  package:
+    name: Package Play Store assets
+    needs: screenshots
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Download generated screenshots
+        uses: actions/download-artifact@v8
+        with:
+          pattern: play-store-*
+          path: store-assets/generated/screenshots
+
+      - name: Add feature graphic
+        run: cp store-assets/feature-graphic.png store-assets/generated/feature-graphic.png
+
+      - name: Upload complete Play Store asset bundle
+        uses: actions/upload-artifact@v7
+        with:
+          name: play-store-assets
+          path: store-assets/generated
+          if-no-files-found: error

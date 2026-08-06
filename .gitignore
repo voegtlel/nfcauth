@@ -7,6 +7,7 @@
 .nfc_auth_service_identity.json
 auth.db
 .local-signing/
+/store-assets/screenshots/
 /app/build
 gradlew
 gradlew.bat
