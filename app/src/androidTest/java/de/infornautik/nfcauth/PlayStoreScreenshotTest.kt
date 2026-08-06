@@ -9,6 +9,8 @@ import android.os.SystemClock
 import android.provider.MediaStore
 import android.util.Base64
 import androidx.test.core.app.ActivityScenario
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.test.espresso.Espresso.onView
 import androidx.test.espresso.action.ViewActions.click
 import androidx.test.espresso.action.ViewActions.swipeUp
@@ -18,6 +20,7 @@ import androidx.test.espresso.matcher.ViewMatchers.withId
 import androidx.test.espresso.matcher.ViewMatchers.withText
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import org.junit.Assert.assertTrue
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Before
@@ -39,7 +42,9 @@ class PlayStoreScreenshotTest {
 
     @Test
     fun capturePlayStoreScreenshots() {
-        ActivityScenario.launch<MainActivity>(Intent(context, MainActivity::class.java)).use {
+        ActivityScenario.launch<MainActivity>(Intent(context, MainActivity::class.java)).use { scenario ->
+            instrumentation.waitForIdleSync()
+            scenario.onActivity(::assertMainContentBelowActionBar)
             capture("01-home-empty")
         }
 
@@ -82,6 +87,33 @@ class PlayStoreScreenshotTest {
             }
         }
         throw AssertionError("The example privacy policy did not become accessible.", lastFailure)
+    }
+
+    private fun assertMainContentBelowActionBar(activity: MainActivity) {
+        val statusLocation = IntArray(2)
+        activity.findViewById<android.view.View>(R.id.statusText)
+            .getLocationOnScreen(statusLocation)
+        val root = activity.findViewById<android.view.View>(R.id.mainRoot)
+        val topInset = ViewCompat.getRootWindowInsets(root)
+            ?.getInsets(WindowInsetsCompat.Type.systemBars())
+            ?.top ?: 0
+        val actionBarSize = android.util.TypedValue().let { value ->
+            check(
+                activity.theme.resolveAttribute(
+                    androidx.appcompat.R.attr.actionBarSize,
+                    value,
+                    true,
+                ),
+            )
+            android.util.TypedValue.complexToDimensionPixelSize(
+                value.data,
+                activity.resources.displayMetrics,
+            )
+        }
+        assertTrue(
+            "Registration count must render below the system and action bars.",
+            statusLocation[1] >= topInset + actionBarSize,
+        )
     }
 
     private fun capture(name: String) {

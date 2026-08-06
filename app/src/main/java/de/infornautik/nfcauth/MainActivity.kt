@@ -11,6 +11,8 @@ import android.widget.Button
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
@@ -26,6 +28,7 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
+        applySystemBarInsets()
 
         statusText = findViewById(R.id.statusText)
         authDatabase = AuthDatabase(this)
@@ -45,6 +48,25 @@ class MainActivity : AppCompatActivity() {
             startActivity(Intent(this, AppPrivacyPolicyActivity::class.java))
         }
         loadReaders()
+    }
+
+    private fun applySystemBarInsets() {
+        val root = findViewById<android.view.View>(R.id.mainRoot)
+        val initialLeft = root.paddingLeft
+        val initialTop = root.paddingTop
+        val initialRight = root.paddingRight
+        val initialBottom = root.paddingBottom
+        ViewCompat.setOnApplyWindowInsetsListener(root) { view, windowInsets ->
+            val systemBars = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars())
+            view.setPadding(
+                initialLeft + systemBars.left,
+                initialTop + systemBars.top,
+                initialRight + systemBars.right,
+                initialBottom + systemBars.bottom,
+            )
+            windowInsets
+        }
+        ViewCompat.requestApplyInsets(root)
     }
 
     override fun onResume() {
