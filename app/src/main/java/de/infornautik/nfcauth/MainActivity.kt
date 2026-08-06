@@ -13,6 +13,7 @@ import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.doOnAttach
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
@@ -66,7 +67,7 @@ class MainActivity : AppCompatActivity() {
             )
             windowInsets
         }
-        ViewCompat.requestApplyInsets(root)
+        root.doOnAttach(ViewCompat::requestApplyInsets)
     }
 
     override fun onResume() {

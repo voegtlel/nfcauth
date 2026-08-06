@@ -43,8 +43,7 @@ class PlayStoreScreenshotTest {
     @Test
     fun capturePlayStoreScreenshots() {
         ActivityScenario.launch<MainActivity>(Intent(context, MainActivity::class.java)).use { scenario ->
-            instrumentation.waitForIdleSync()
-            scenario.onActivity(::assertMainContentBelowActionBar)
+            waitForMainContentBelowActionBar(scenario)
             capture("01-home-empty")
         }
 
@@ -89,7 +88,29 @@ class PlayStoreScreenshotTest {
         throw AssertionError("The example privacy policy did not become accessible.", lastFailure)
     }
 
-    private fun assertMainContentBelowActionBar(activity: MainActivity) {
+    private fun waitForMainContentBelowActionBar(
+        scenario: ActivityScenario<MainActivity>,
+    ) {
+        val deadline = SystemClock.elapsedRealtime() + LAYOUT_TIMEOUT_MS
+        var lastMeasurement = MainContentMeasurement(0, 0, 0)
+        while (SystemClock.elapsedRealtime() < deadline) {
+            instrumentation.waitForIdleSync()
+            scenario.onActivity { activity ->
+                lastMeasurement = measureMainContent(activity)
+            }
+            if (lastMeasurement.isBelowActionBar) return
+            SystemClock.sleep(100)
+        }
+        assertTrue(
+            "Registration count must render below the system and action bars: " +
+                "statusTop=${lastMeasurement.statusTop}, " +
+                "topInset=${lastMeasurement.topInset}, " +
+                "actionBarSize=${lastMeasurement.actionBarSize}.",
+            lastMeasurement.isBelowActionBar,
+        )
+    }
+
+    private fun measureMainContent(activity: MainActivity): MainContentMeasurement {
         val statusLocation = IntArray(2)
         activity.findViewById<android.view.View>(R.id.statusText)
             .getLocationOnScreen(statusLocation)
@@ -97,22 +118,21 @@ class PlayStoreScreenshotTest {
         val topInset = ViewCompat.getRootWindowInsets(root)
             ?.getInsets(WindowInsetsCompat.Type.systemBars())
             ?.top ?: 0
-        val actionBarSize = android.util.TypedValue().let { value ->
-            check(
-                activity.theme.resolveAttribute(
-                    androidx.appcompat.R.attr.actionBarSize,
-                    value,
-                    true,
-                ),
-            )
-            android.util.TypedValue.complexToDimensionPixelSize(
+        val value = android.util.TypedValue()
+        check(
+            activity.theme.resolveAttribute(
+                androidx.appcompat.R.attr.actionBarSize,
+                value,
+                true,
+            ),
+        )
+        return MainContentMeasurement(
+            statusTop = statusLocation[1],
+            topInset = topInset,
+            actionBarSize = android.util.TypedValue.complexToDimensionPixelSize(
                 value.data,
                 activity.resources.displayMetrics,
-            )
-        }
-        assertTrue(
-            "Registration count must render below the system and action bars.",
-            statusLocation[1] >= topInset + actionBarSize,
+            ),
         )
     }
 
@@ -223,6 +243,7 @@ class PlayStoreScreenshotTest {
         private const val PRIVACY_POLICY_URL =
             "https://voegtlel.github.io/nfcauth/example-service-privacy.html"
         private const val POLICY_TIMEOUT_MS = 15_000L
+        private const val LAYOUT_TIMEOUT_MS = 3_000L
         private const val EXAMPLE_APPROVAL_TIME = 1_785_283_200_000L
         private const val EXAMPLE_ENCRYPTION_FINGERPRINT =
             "48d7af09786b935482e8be7444f2c5fd9f85164876744f554ef59f74d6616d31"
@@ -242,5 +263,14 @@ class PlayStoreScreenshotTest {
             ServiceManifestParser.FIELD_AUTHENTICATION_PUBLIC_KEY to
                 "Verify future NFC authentication signatures.",
         )
+    }
+
+    private data class MainContentMeasurement(
+        val statusTop: Int,
+        val topInset: Int,
+        val actionBarSize: Int,
+    ) {
+        val isBelowActionBar: Boolean
+            get() = statusTop >= topInset + actionBarSize
     }
 }
