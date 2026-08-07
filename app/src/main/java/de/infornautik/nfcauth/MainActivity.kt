@@ -14,7 +14,6 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.doOnAttach
-import androidx.core.view.doOnLayout
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
@@ -58,13 +57,8 @@ class MainActivity : AppCompatActivity() {
         val initialTop = root.paddingTop
         val initialRight = root.paddingRight
         val initialBottom = root.paddingBottom
-        val actionBarSize = android.util.TypedValue().let { value ->
-            check(theme.resolveAttribute(androidx.appcompat.R.attr.actionBarSize, value, true))
-            android.util.TypedValue.complexToDimensionPixelSize(
-                value.data,
-                resources.displayMetrics,
-            )
-        }
+        val actionBarContainer: android.view.View? =
+            findViewById(androidx.appcompat.R.id.action_bar_container)
         ViewCompat.setOnApplyWindowInsetsListener(root) { view, windowInsets ->
             val systemBars = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars())
             val left = initialLeft + systemBars.left
@@ -72,11 +66,17 @@ class MainActivity : AppCompatActivity() {
             val right = initialRight + systemBars.right
             val bottom = initialBottom + systemBars.bottom
             view.setPadding(left, baseTop, right, bottom)
-            view.doOnLayout {
-                val location = IntArray(2)
-                view.getLocationOnScreen(location)
-                val actionBarBottom = systemBars.top + actionBarSize
-                val correctedTop = maxOf(baseTop, actionBarBottom - location[1])
+            view.post {
+                val actionBar = actionBarContainer ?: return@post
+                val rootLocation = IntArray(2)
+                val actionBarLocation = IntArray(2)
+                view.getLocationOnScreen(rootLocation)
+                actionBar.getLocationOnScreen(actionBarLocation)
+                val actionBarBottom = actionBarLocation[1] + actionBar.height
+                val correctedTop = maxOf(
+                    baseTop,
+                    actionBarBottom - rootLocation[1] + initialTop,
+                )
                 if (view.paddingTop != correctedTop) {
                     view.setPadding(left, correctedTop, right, bottom)
                 }
