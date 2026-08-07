@@ -14,6 +14,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.doOnAttach
+import androidx.core.view.doOnLayout
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
@@ -57,14 +58,29 @@ class MainActivity : AppCompatActivity() {
         val initialTop = root.paddingTop
         val initialRight = root.paddingRight
         val initialBottom = root.paddingBottom
+        val actionBarSize = android.util.TypedValue().let { value ->
+            check(theme.resolveAttribute(androidx.appcompat.R.attr.actionBarSize, value, true))
+            android.util.TypedValue.complexToDimensionPixelSize(
+                value.data,
+                resources.displayMetrics,
+            )
+        }
         ViewCompat.setOnApplyWindowInsetsListener(root) { view, windowInsets ->
             val systemBars = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars())
-            view.setPadding(
-                initialLeft + systemBars.left,
-                initialTop + systemBars.top,
-                initialRight + systemBars.right,
-                initialBottom + systemBars.bottom,
-            )
+            val left = initialLeft + systemBars.left
+            val baseTop = initialTop + systemBars.top
+            val right = initialRight + systemBars.right
+            val bottom = initialBottom + systemBars.bottom
+            view.setPadding(left, baseTop, right, bottom)
+            view.doOnLayout {
+                val location = IntArray(2)
+                view.getLocationOnScreen(location)
+                val actionBarBottom = systemBars.top + actionBarSize
+                val correctedTop = maxOf(baseTop, actionBarBottom - location[1])
+                if (view.paddingTop != correctedTop) {
+                    view.setPadding(left, correctedTop, right, bottom)
+                }
+            }
             windowInsets
         }
         root.doOnAttach(ViewCompat::requestApplyInsets)
