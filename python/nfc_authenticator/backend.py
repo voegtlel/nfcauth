@@ -1,8 +1,9 @@
 """Transport-independent service adapter for discovery and proof of possession.
 
-SQLiteStore supplies local credentials and durable attempts; BackendStore allows
-other persistence adapters. Call directly or wrap these methods in a proxy of your
-choice. The caller supplies a trusted reader identity and owns account permissions.
+SQLiteStore supplies durable local credentials and process-local attempts;
+BackendStore allows other adapters. Call directly or wrap these methods in a proxy
+of your choice. The caller supplies a trusted reader identity and owns account
+permissions.
 """
 
 from __future__ import annotations

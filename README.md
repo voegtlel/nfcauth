@@ -37,8 +37,9 @@ the phone first verifies its approved service, supplies an opaque service-specif
 credential ID, then proves possession through the existing nonce/signature flow.
 The Python reader and [backend adapter](python/nfc_authenticator/backend.py) support
 multiple enrolled users. The typed adapter stores credentials and single-use attempts
-locally through SQLite, without choosing a communication protocol. Call it directly
-or build your own HTTP, IPC or other proxy around its methods.
+without choosing a communication protocol: credentials persist in SQLite, while
+pending attempts exist only in a process-local Python dictionary. Call it directly or
+build your own HTTP, IPC or other proxy around its methods.
 
 Protocol version 2 has two encryption layers:
 

@@ -1,4 +1,4 @@
-"""Local SQLite adapter for enrolled credentials and single-use login attempts.
+"""SQLite credentials with process-local, single-use authentication attempts.
 
 No transport, reader hardware or account/session policy is required here. Protect
 the database file: credential secrets are encoded, not encrypted at rest.
@@ -7,9 +7,9 @@ the database file: credential secrets are encoded, not encrypted at rest.
 from __future__ import annotations
 
 import base64
-import json
 import sqlite3
 import threading
+from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
@@ -24,6 +24,15 @@ class RegisteredDevice:
     alias: str | None
     authentication_public_key: str
     session_key: bytes
+
+
+@dataclass(frozen=True)
+class PendingAttempt:
+    service_id: str
+    reader_id: str
+    kind: str
+    expires_at: float
+    payload: JsonObject
 
 
 class BackendStore(Protocol):
@@ -51,14 +60,15 @@ class BackendStore(Protocol):
 
 
 class SQLiteStore:
-    """Compatible credential schema plus durable, reader-scoped attempt storage.
+    """Durable credentials plus process-local, reader-scoped attempt storage.
 
-    One instance supports threads; separate instances/processes may share a file.
-    SQLite transactions serialize single-use consumption across connections.
+    One instance supports threads. Attempts intentionally disappear when this object
+    is closed or the process exits; separate instances never share pending attempts.
     """
 
     def __init__(self, db_path: str | Path = "auth.db") -> None:
         self.lock = threading.RLock()
+        self.attempts: dict[str, PendingAttempt] = {}
         self.conn = sqlite3.connect(db_path, check_same_thread=False, timeout=5)
         with self.conn:
             self.conn.execute("""
@@ -71,20 +81,10 @@ class SQLiteStore:
                     registered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
-            self.conn.execute("""
-                CREATE TABLE IF NOT EXISTS authentication_attempts_v2 (
-                    id TEXT PRIMARY KEY,
-                    service_id TEXT NOT NULL,
-                    reader_id TEXT NOT NULL,
-                    kind TEXT NOT NULL,
-                    expires_at REAL NOT NULL,
-                    payload TEXT NOT NULL
-                )
-            """)
-            self.conn.execute("""
-                CREATE INDEX IF NOT EXISTS authentication_attempt_scope_v2
-                ON authentication_attempts_v2(service_id, reader_id, expires_at)
-            """)
+            # Earlier prerelease builds persisted attempts. They are disposable,
+            # so remove that storage when opening an existing database.
+            self.conn.execute("DROP INDEX IF EXISTS authentication_attempt_scope_v2")
+            self.conn.execute("DROP TABLE IF EXISTS authentication_attempts_v2")
 
     def register_device(
         self,
@@ -142,22 +142,27 @@ class SQLiteStore:
         value: JsonObject,
         now: float,
     ) -> str:
-        with self.lock, self.conn:
-            self.conn.execute("BEGIN IMMEDIATE")
-            self.conn.execute(
-                "DELETE FROM authentication_attempts_v2 WHERE service_id=? AND reader_id=? AND expires_at<=?",
-                (service_id, reader_id, now),
+        with self.lock:
+            self.attempts = {
+                attempt_id: attempt
+                for attempt_id, attempt in self.attempts.items()
+                if attempt.expires_at > now
+            }
+            count = sum(
+                attempt.service_id == service_id and attempt.reader_id == reader_id
+                for attempt in self.attempts.values()
             )
-            count = self.conn.execute(
-                "SELECT count(*) FROM authentication_attempts_v2 WHERE service_id=? AND reader_id=?",
-                (service_id, reader_id),
-            ).fetchone()[0]
             if count >= 256:
                 raise ValueError("Too many pending authentication attempts")
             attempt_id = str(uuid4())
-            self.conn.execute(
-                "INSERT INTO authentication_attempts_v2 VALUES (?,?,?,?,?,?)",
-                (attempt_id, service_id, reader_id, kind, now + 120, json.dumps(value)),
+            while attempt_id in self.attempts:
+                attempt_id = str(uuid4())
+            self.attempts[attempt_id] = PendingAttempt(
+                service_id,
+                reader_id,
+                kind,
+                now + 120,
+                deepcopy(value),
             )
         return attempt_id
 
@@ -169,26 +174,23 @@ class SQLiteStore:
         kind: str,
         now: float,
     ) -> JsonObject:
-        with self.lock, self.conn:
-            self.conn.execute("BEGIN IMMEDIATE")
-            row = self.conn.execute(
-                "SELECT kind,expires_at,payload FROM authentication_attempts_v2 "
-                "WHERE id=? AND service_id=? AND reader_id=?",
-                (attempt_id, service_id, reader_id),
-            ).fetchone()
-            if row is not None:
-                self.conn.execute("DELETE FROM authentication_attempts_v2 WHERE id=?", (attempt_id,))
-        # Commit deletion even when validation/proof fails. Another process must
-        # never be able to reuse the same attempt after an unsuccessful proof.
-        if row is None or row[0] != kind or row[1] <= now:
-            raise ValueError("Attempt expired, consumed or of the wrong type")
-        payload = json.loads(row[2])
-        if not isinstance(payload, dict):
-            raise TypeError("Stored authentication attempt is malformed")
-        return payload
+        with self.lock:
+            attempt = self.attempts.get(attempt_id)
+            if (
+                attempt is None
+                or attempt.service_id != service_id
+                or attempt.reader_id != reader_id
+            ):
+                raise ValueError("Attempt expired, consumed or of the wrong type")
+            # Consume before validating the proof so a failed attempt cannot be retried.
+            del self.attempts[attempt_id]
+            if attempt.kind != kind or attempt.expires_at <= now:
+                raise ValueError("Attempt expired, consumed or of the wrong type")
+            return deepcopy(attempt.payload)
 
     def close(self) -> None:
         with self.lock:
+            self.attempts.clear()
             self.conn.close()
 
     def __enter__(self) -> SQLiteStore:  # noqa: PYI034 - support Python 3.9 without typing_extensions.

@@ -1,6 +1,7 @@
 import base64
 import json
 import secrets
+import sqlite3
 from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -186,7 +187,7 @@ def test_binding_matches_phone_and_changes_on_fresh_handshake() -> None:
     assert len(phone.discovery_binding) == 64
 
 
-def test_credentials_and_both_attempt_stages_survive_reopening(service: Service, tmp_path: Path) -> None:
+def test_credentials_survive_reopening_but_attempts_do_not(service: Service, tmp_path: Path) -> None:
     backend, credentials, _ = service
     discovery = backend.start_discovery("ab" * 32)
     assert isinstance(backend.store, SQLiteStore)
@@ -194,28 +195,27 @@ def test_credentials_and_both_attempt_stages_survive_reopening(service: Service,
     path = tmp_path / "credentials.sqlite"
     with SQLiteStore(path) as store:
         restarted = ReferenceBackend(backend.identity, backend.privacy, store, clock=backend.clock)
+        assert store.get_device(backend.privacy.service_id, "second-user") is not None
+        with pytest.raises(ValueError, match="consumed"):
+            restarted.create_challenge(discovery["id"], discovery_response(discovery["request"]))
+        discovery = restarted.start_discovery("ab" * 32)
         challenge = restarted.create_challenge(discovery["id"], discovery_response(discovery["request"]))
         response = proof(restarted, challenge, credentials)
-    with SQLiteStore(path) as store:
-        restarted = ReferenceBackend(backend.identity, backend.privacy, store, clock=backend.clock)
-        assert restarted.complete(challenge["login_id"], response) == "second-user"
     with SQLiteStore(path) as store:
         restarted = ReferenceBackend(backend.identity, backend.privacy, store, clock=backend.clock)
         with pytest.raises(ValueError, match="consumed"):
             restarted.complete(challenge["login_id"], response)
 
 
-def test_failed_proof_consumption_is_committed(service: Service, tmp_path: Path) -> None:
+def test_failed_proof_is_consumed_in_memory(service: Service) -> None:
     backend, credentials, _ = service
     discovery = backend.start_discovery("ab" * 32)
     challenge = backend.create_challenge(discovery["id"], discovery_response(discovery["request"]))
     valid = proof(backend, challenge, credentials)
     with pytest.raises(InvalidSignature):
         backend.complete(challenge["login_id"], proof(backend, challenge, credentials, wrong_key=True))
-    with SQLiteStore(tmp_path / "credentials.sqlite") as store:
-        other = ReferenceBackend(backend.identity, backend.privacy, store, clock=backend.clock)
-        with pytest.raises(ValueError, match="consumed"):
-            other.complete(challenge["login_id"], valid)
+    with pytest.raises(ValueError, match="consumed"):
+        backend.complete(challenge["login_id"], valid)
 
 
 def test_wrong_reader_does_not_consume_another_readers_attempt(service: Service) -> None:
@@ -228,14 +228,13 @@ def test_wrong_reader_does_not_consume_another_readers_attempt(service: Service)
     assert backend.create_challenge(discovery["id"], response)["login_id"]
 
 
-def test_only_one_connection_can_consume_an_attempt(tmp_path: Path) -> None:
+def test_only_one_thread_can_consume_an_attempt(tmp_path: Path) -> None:
     path = tmp_path / "shared.sqlite"
     with SQLiteStore(path) as store:
         attempt = store.save_attempt("service", "reader", "discovery", {"test": True}, 1000)
-    barrier = Barrier(2)
+        barrier = Barrier(2)
 
-    def consume(_: int) -> str:
-        with SQLiteStore(path) as store:
+        def consume(_: int) -> str:
             barrier.wait(timeout=5)
             try:
                 store.consume_attempt("service", "reader", attempt, "discovery", 1001)
@@ -243,19 +242,33 @@ def test_only_one_connection_can_consume_an_attempt(tmp_path: Path) -> None:
             except ValueError:
                 return "rejected"
 
-    with ThreadPoolExecutor(max_workers=2) as workers:
-        assert sorted(workers.map(consume, range(2))) == ["accepted", "rejected"]
+        with ThreadPoolExecutor(max_workers=2) as workers:
+            assert sorted(workers.map(consume, range(2))) == ["accepted", "rejected"]
 
 
-def test_pending_limit_and_expiry_are_shared_by_connections(tmp_path: Path) -> None:
-    path = tmp_path / "shared.sqlite"
-    with SQLiteStore(path) as first, SQLiteStore(path) as second:
+def test_pending_limit_and_expiry_are_scoped_in_memory(tmp_path: Path) -> None:
+    with SQLiteStore(tmp_path / "shared.sqlite") as store:
         for _ in range(256):
-            first.save_attempt("service", "reader", "discovery", {}, 1000)
+            store.save_attempt("service", "reader", "discovery", {}, 1000)
         with pytest.raises(ValueError, match="Too many"):
-            second.save_attempt("service", "reader", "discovery", {}, 1001)
-        assert second.save_attempt("service", "reader", "discovery", {}, 1120)
-        assert first.save_attempt("service", "different-reader", "discovery", {}, 1001)
+            store.save_attempt("service", "reader", "discovery", {}, 1001)
+        assert store.save_attempt("service", "reader", "discovery", {}, 1120)
+        assert store.save_attempt("service", "different-reader", "discovery", {}, 1001)
+
+
+def test_attempt_table_is_removed_and_never_recreated(tmp_path: Path) -> None:
+    path = tmp_path / "old.sqlite"
+    with sqlite3.connect(path) as connection:
+        connection.execute("CREATE TABLE authentication_attempts_v2 (id TEXT PRIMARY KEY)")
+        connection.execute(
+            "CREATE INDEX authentication_attempt_scope_v2 ON authentication_attempts_v2(id)"
+        )
+    with SQLiteStore(path) as store:
+        store.save_attempt("service", "reader", "discovery", {"test": True}, 1000)
+        persisted = store.conn.execute(
+            "SELECT name FROM sqlite_master WHERE name LIKE 'authentication_attempt%'")
+        assert persisted.fetchall() == []
+        assert len(store.attempts) == 1
 
 
 def test_other_service_cannot_consume_attempt(tmp_path: Path) -> None:

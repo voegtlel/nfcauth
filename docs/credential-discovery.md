@@ -66,11 +66,12 @@ service-specific ID; other services cannot request it using unrelated keys.
 
 ## Local backend adapter
 
-`ReferenceBackend` is an ordinary typed Python object. `SQLiteStore` stores enrolled
-credentials and pending authentication attempts in a local SQLite file. Neither
-component opens a socket, chooses a web framework or requires NFC hardware. Install
-from the `python/` directory with `pip install .` (or `uv sync`). Hardware dependencies
-are optional: only physical readers need `pip install '.[reader]'`.
+`ReferenceBackend` is an ordinary typed Python object. `SQLiteStore` persists enrolled
+credentials in a local SQLite file and keeps pending authentication attempts only in
+its process-local Python `attempts` dictionary. Neither component opens a socket,
+chooses a web framework or requires NFC hardware. Install from the `python/` directory
+with `pip install .` (or `uv sync`). Hardware dependencies are optional: only physical
+readers need `pip install '.[reader]'`.
 
 ```python
 from nfc_authenticator.backend import ReferenceBackend
@@ -89,6 +90,7 @@ privacy = ServicePrivacyConfig(
 )
 identity = ServiceIdentity.load_or_create("service-identity.json")
 with SQLiteStore("auth.db") as store:
+    # Credentials persist in auth.db; pending attempts exist only in store.attempts.
     backend = ReferenceBackend(identity, privacy, store, reader_id="local-reader")
     # Call the methods below using your reader/transport integration.
 ```
@@ -124,11 +126,13 @@ Discovery and challenge creation alone never authenticate the caller.
 
 ### Persistence and enrollment
 
-`SQLiteStore` preserves the existing `registered_devices_v2` schema and adds the
-`authentication_attempts_v2` table. Existing reader databases work without exporting
-credentials. The reader's `AuthDatabase` import remains a compatibility alias.
-The Python reader uses this same adapter locally and selects the phone's enrolled
-ID rather than guessing the first registration.
+`SQLiteStore` preserves the existing `registered_devices_v2` credential schema.
+Pending attempts are never inserted into SQLite. When an earlier prerelease database
+contains the obsolete `authentication_attempts_v2` table, opening it removes that
+table and its disposable attempts while preserving registered credentials. The
+reader's `AuthDatabase` import remains a compatibility alias. The Python reader uses
+this same adapter locally and selects the phone's enrolled ID rather than guessing
+the first registration.
 
 Credentials are supplied by the existing consent/acknowledgement registration flow;
 `register_device(...)` and `remove_registration(...)` allow the host application to
@@ -138,13 +142,12 @@ The service signing/encryption identity remains in its existing private identity
 Retain those keys and protect both files: SQLite secrets are not encrypted at rest.
 
 Attempts last 120 seconds and are scoped to `(service_id, reader_id)`, with at most
-256 pending attempts per scope. Wall-clock expiry persists across restarts. Consumption
-is committed in a SQLite transaction before validating the response, so a failed
-proof or another process cannot reuse that attempt. Expired rows are pruned on the
-next creation in that scope. Concurrent connections share the bound and consumption
-state. After a lost response/restart, a caller can continue using its attempt ID;
-if consumption already happened, start a fresh attempt rather than replaying it.
-The `clock` injection is for tests; a persistent store requires a consistent wall clock.
+256 pending attempts per scope. Access is protected by the store's process-local lock,
+and consumption removes an attempt before validating the response so a failed proof
+cannot reuse it. Expired entries are pruned when another attempt is created. Closing
+the store, crashing or restarting the process discards every pending attempt; the
+caller then starts a fresh discovery rather than replaying an old attempt ID. The
+`clock` injection exists only for tests.
 
 ### Custom proxies and other databases
 
@@ -154,12 +157,14 @@ server, certificate layout or communication protocol are prescribed by the adapt
 
 A remote proxy must authorize the reader and derive `reader_id` from its trusted
 connection/session context, not an arbitrary request field. Use a stable reader ID
-for every request from that reader; separate workers for the same reader should
-use the same ID and database. Different readers share service identity/credentials
-but cannot consume one another's attempts. The default `local` reader ID is suitable
-for one local reader. The host application owns input bounds, secure transport,
-rate limiting, account authorization and session issuance. The SQLite adapter only
-provides storage and protocol verification; it is not an account or network server.
+for every request from that reader and route `start_discovery`, `create_challenge`
+and `complete` to the same store instance. Separate processes do not share attempts;
+multi-worker deployments therefore need sticky routing or their own `BackendStore`
+implementation. Different readers using one store share service credentials but
+cannot consume one another's attempts. The default `local` reader ID is suitable for
+one local reader. The host application owns input bounds, secure transport, rate
+limiting, account authorization and session issuance. The adapter provides credential
+storage and protocol verification; it is not an account or network server.
 
 ## Compatibility and assurance
 
