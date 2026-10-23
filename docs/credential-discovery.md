@@ -29,7 +29,7 @@ Request:
 
 ```json
 {
-  "signed_manifest": {"protocol_version": 2, "manifest": "…", "manifest_signing_public_key": "…", "manifest_signature": "…"},
+  "signed_manifest": {"protocol_version": 2, "manifest": "â€¦", "manifest_signing_public_key": "â€¦", "manifest_signature": "â€¦"},
   "discovery_nonce": "64 lowercase hex characters",
   "transport_binding": "64 lowercase hex characters",
   "discovery_signature": "base64 DER ECDSA signature"
@@ -64,56 +64,102 @@ check. This does **not** implement distance bounding or prevent a transparent li
 relay of the entire exchange. An authorized service reader can observe the
 service-specific ID; other services cannot request it using unrelated keys.
 
-## Backend reference
+## Local backend adapter
 
-`python/nfc_authenticator/backend.py` implements the service boundary independently
-of NFC hardware. It uses the existing enrolled credential store, maintains bounded
-120-second single-use attempts, and returns an ID from `complete()` only after
-verification. Store credentials from the existing consent/acknowledgement registration
-flow. Enrollment/account authorization is the calling application's responsibility.
+`ReferenceBackend` is an ordinary typed Python object. `SQLiteStore` stores enrolled
+credentials and pending authentication attempts in a local SQLite file. Neither
+component opens a socket, chooses a web framework or requires NFC hardware. Install
+from the `python/` directory with `pip install .` (or `uv sync`). Hardware dependencies
+are optional: only physical readers need `pip install '.[reader]'`.
 
 ```python
-backend = ReferenceBackend(service_identity, privacy_config, credential_store)
-discovery = backend.start_discovery(reader_transport_binding)
-# Relay discovery["request"] to the phone using D0 05.
-challenge = backend.create_challenge(discovery["id"], encrypted_transport_response)
-# Relay challenge["request"] using the existing authentication instruction.
-authenticated_id = backend.complete(challenge["login_id"], encrypted_phone_proof)
-# Resolve this ID to the registered account; only now grant application permissions.
+from nfc_authenticator.backend import ReferenceBackend
+from nfc_authenticator.service_manifest import ServiceIdentity, ServicePrivacyConfig
+from nfc_authenticator.storage import SQLiteStore
+
+privacy = ServicePrivacyConfig(
+    service_id="example.service",
+    service_name="Example Service",
+    operator_name="Example Operator",
+    privacy_policy_url="https://example.com/privacy",
+    privacy_notice_version="1",
+    requested_fields=("service_user_id", "authentication_public_key"),
+    purposes={"service_user_id": "Identify enrollment", "authentication_public_key": "Verify login"},
+    data_deletion_url_or_contact="privacy@example.com",
+)
+identity = ServiceIdentity.load_or_create("service-identity.json")
+with SQLiteStore("auth.db") as store:
+    backend = ReferenceBackend(identity, privacy, store, reader_id="local-reader")
+    # Call the methods below using your reader/transport integration.
 ```
 
-`python/examples/backend_service.py --config backend.json` exposes the same stages
-as `/discovery`, `/challenges` and `/authenticate`. It requires mTLS and an explicit
-allow-list of reader certificate SHA-256 fingerprints. Each authorized reader has
-its own attempt store, while readers share the logical service identity/credential
-database. Example configuration:
+The three methods pass plain Python dictionaries; their implementation never sends
+or receives data. For example, an application can inject its own exchange function:
 
-```json
-{
-  "host": "127.0.0.1",
-  "port": 8443,
-  "service_identity": "/secure/service-identity.json",
-  "credential_database": "/secure/auth.db",
-  "certificate": "/secure/backend.crt",
-  "private_key": "/secure/backend.key",
-  "reader_ca": "/secure/reader-ca.crt",
-  "reader_certificate_sha256": ["authorized reader leaf-certificate SHA256 hex"],
-  "privacy": {
-    "service_id": "example.service", "service_name": "Example Service",
-    "operator_name": "Example Operator", "privacy_policy_url": "https://example.com/privacy",
-    "privacy_notice_version": "1",
-    "requested_fields": ["service_user_id", "authentication_public_key"],
-    "purposes": {"service_user_id": "Identify enrollment", "authentication_public_key": "Verify login"},
-    "data_deletion_url_or_contact": "privacy@example.com"
-  }
-}
+```python
+from collections.abc import Callable
+
+from nfc_authenticator.backend import ReferenceBackend
+from nfc_authenticator.storage import JsonObject
+
+
+def authenticate(
+    backend: ReferenceBackend,
+    transport_binding: str,
+    exchange: Callable[[str, JsonObject], JsonObject],
+) -> str:
+    discovery = backend.start_discovery(transport_binding)
+    selection = exchange("credential-discovery", discovery["request"])
+    challenge = backend.create_challenge(discovery["id"], selection)
+    proof = exchange("authentication", challenge["request"])
+    return backend.complete(challenge["login_id"], proof)
 ```
 
-This single-process example is for development behind trusted networking. Production
-services need durable transactional attempts/idempotency, lifecycle/revocation checks,
-rate limits, account/session authorization, protected credentials, and operational
-hardening. The Python reader uses the same `ReferenceBackend` in process and now
-supports selecting among multiple enrolled users without entering their username.
+`exchange` is supplied by your application: it relays messages through the existing
+NFC encrypted transport (directly or via your proxy), and returns the decoded NFC
+transport response. The authentication proof inside remains credential-encrypted.
+Establish that session before calling this function and use its derived binding.
+Only the returned, cryptographically verified ID may be mapped to an account/session.
+Discovery and challenge creation alone never authenticate the caller.
+
+### Persistence and enrollment
+
+`SQLiteStore` preserves the existing `registered_devices_v2` schema and adds the
+`authentication_attempts_v2` table. Existing reader databases work without exporting
+credentials. The reader's `AuthDatabase` import remains a compatibility alias.
+The Python reader uses this same adapter locally and selects the phone's enrolled
+ID rather than guessing the first registration.
+
+Credentials are supplied by the existing consent/acknowledgement registration flow;
+`register_device(...)` and `remove_registration(...)` allow the host application to
+persist validated enrollment and revoke credentials. They do not perform account
+authorization. Never expose raw credential insertion as an unauthenticated proxy API.
+The service signing/encryption identity remains in its existing private identity file.
+Retain those keys and protect both files: SQLite secrets are not encrypted at rest.
+
+Attempts last 120 seconds and are scoped to `(service_id, reader_id)`, with at most
+256 pending attempts per scope. Wall-clock expiry persists across restarts. Consumption
+is committed in a SQLite transaction before validating the response, so a failed
+proof or another process cannot reuse that attempt. Expired rows are pruned on the
+next creation in that scope. Concurrent connections share the bound and consumption
+state. After a lost response/restart, a caller can continue using its attempt ID;
+if consumption already happened, start a fresh attempt rather than replaying it.
+The `clock` injection is for tests; a persistent store requires a consistent wall clock.
+
+### Custom proxies and other databases
+
+An application can call these methods directly, wrap them in HTTP, IPC or another
+transport, or implement `BackendStore` for different persistence. No HTTP endpoints,
+server, certificate layout or communication protocol are prescribed by the adapter.
+
+A remote proxy must authorize the reader and derive `reader_id` from its trusted
+connection/session context, not an arbitrary request field. Use a stable reader ID
+for every request from that reader; separate workers for the same reader should
+use the same ID and database. Different readers share service identity/credentials
+but cannot consume one another's attempts. The default `local` reader ID is suitable
+for one local reader. The host application owns input bounds, secure transport,
+rate limiting, account authorization and session issuance. The SQLite adapter only
+provides storage and protocol verification; it is not an account or network server.
 
 ## Compatibility and assurance
 

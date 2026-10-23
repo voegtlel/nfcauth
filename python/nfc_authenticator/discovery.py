@@ -10,11 +10,14 @@ import base64
 import hmac
 import re
 import secrets
+from typing import Any
 
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import ec
 
-from .service_manifest import PROTOCOL_VERSION, manifest_hash
+from .service_manifest import PROTOCOL_VERSION, ServiceIdentity, ServicePrivacyConfig, manifest_hash
+
+JsonObject = dict[str, Any]
 
 PURPOSE_DISCOVERY = "credential-discovery"
 DOMAIN = b"nfcauth-v2-credential-discovery-request\x00"
@@ -29,7 +32,7 @@ def signature_payload(service_id: str, digest: str, nonce: str, binding: str) ->
     return DOMAIN + len(encoded).to_bytes(2, "big") + encoded + bytes.fromhex(digest + nonce + binding)
 
 
-def create_request(identity, privacy, binding: str) -> dict:
+def create_request(identity: ServiceIdentity, privacy: ServicePrivacyConfig, binding: str) -> JsonObject:
     signed = identity.signed_manifest(privacy)
     nonce = secrets.token_hex(32)
     payload = signature_payload(privacy.service_id, manifest_hash(signed["manifest"]), nonce, binding)
@@ -43,7 +46,7 @@ def create_request(identity, privacy, binding: str) -> dict:
     }
 
 
-def identify(request: dict, response: dict) -> str:
+def identify(request: JsonObject, response: JsonObject) -> str:
     """Validate response context, then return a lookup hint, never an auth proof."""
     if not isinstance(response, dict):
         raise TypeError("Discovery response must be an object")

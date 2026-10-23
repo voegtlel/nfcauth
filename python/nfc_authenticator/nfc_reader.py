@@ -6,11 +6,9 @@ import argparse
 import base64
 import json
 import logging
-import sqlite3
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Literal
 
 from cryptography.hazmat.primitives import serialization
@@ -31,6 +29,8 @@ from .service_manifest import (
     ServicePrivacyConfig,
     manifest_hash,
 )
+from .storage import RegisteredDevice as RegisteredDevice  # noqa: PLC0414 - compatibility re-export.
+from .storage import SQLiteStore as AuthDatabase
 
 SELECT_APPLICATION = b"\x00\xa4\x04\x00"
 SESSION_INIT = b"\xd0\x00\x00\x00"
@@ -60,100 +60,6 @@ class ReaderConfig:
     auth: Literal["background", "biometric"]
     aid: bytes = bytes.fromhex("F064652E696E666F726E617574696B")
     nonce_length: int = 16
-
-
-@dataclass(frozen=True)
-class RegisteredDevice:
-    user_id: str
-    alias: str | None
-    authentication_public_key: str
-    session_key: bytes
-
-
-class AuthDatabase:
-    """Service-side credential storage; callers must protect this local file."""
-
-    def __init__(self, db_path: str | Path = "auth.db"):
-        self.conn = sqlite3.connect(db_path)
-        self.conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS registered_devices_v2 (
-                service_id TEXT NOT NULL,
-                user_id TEXT PRIMARY KEY,
-                alias TEXT,
-                authentication_public_key TEXT NOT NULL,
-                session_key TEXT NOT NULL,
-                registered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-            """
-        )
-        self.conn.commit()
-
-    def register_device(
-        self,
-        service_id: str,
-        user_id: str,
-        alias: str | None,
-        authentication_public_key: str,
-        session_key: bytes,
-    ) -> None:
-        self.conn.execute(
-            """
-            INSERT INTO registered_devices_v2 (
-                service_id, user_id, alias, authentication_public_key, session_key
-            ) VALUES (?, ?, ?, ?, ?)
-            """,
-            (
-                service_id,
-                user_id,
-                alias,
-                authentication_public_key,
-                base64.b64encode(session_key).decode("ascii"),
-            ),
-        )
-        self.conn.commit()
-
-    def remove_registration(self, user_id: str) -> None:
-        self.conn.execute(
-            "DELETE FROM registered_devices_v2 WHERE user_id = ?",
-            (user_id,),
-        )
-        self.conn.commit()
-
-    def get_default_device(self, service_id: str) -> RegisteredDevice | None:
-        row = self.conn.execute(
-            """
-            SELECT user_id, alias, authentication_public_key, session_key
-            FROM registered_devices_v2
-            WHERE service_id = ?
-            ORDER BY registered_at
-            LIMIT 1
-            """,
-            (service_id,),
-        ).fetchone()
-        if row is None:
-            return None
-        try:
-            session_key = base64.b64decode(row[3], validate=True)
-        except ValueError as error:
-            raise NFCReaderException("Stored service credential is malformed") from error
-        return RegisteredDevice(row[0], row[1], row[2], session_key)
-
-    def close(self) -> None:
-        self.conn.close()
-
-    def get_device(self, service_id: str, user_id: str) -> RegisteredDevice | None:
-        row = self.conn.execute(
-            "SELECT user_id,alias,authentication_public_key,session_key "
-            "FROM registered_devices_v2 WHERE service_id=? AND user_id=?",
-            (service_id, user_id),
-        ).fetchone()
-        if row is None:
-            return None
-        try:
-            return RegisteredDevice(row[0], row[1], row[2], base64.b64decode(row[3], validate=True))
-        except ValueError as error:
-            raise NFCReaderException("Stored service credential is malformed") from error
 
 
 class NFCConnector(ABC):

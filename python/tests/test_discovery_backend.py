@@ -1,6 +1,10 @@
 import base64
 import json
 import secrets
+from collections.abc import Iterator
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
+from threading import Barrier
 
 import pytest
 from cryptography.exceptions import InvalidSignature
@@ -10,14 +14,17 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 from nfc_authenticator.backend import ReferenceBackend
 from nfc_authenticator.discovery import signature_payload
-from nfc_authenticator.nfc_reader import AuthDatabase
 from nfc_authenticator.protocol_crypto import SessionInitiator, _derive_session, _encode_handshake, _parse_handshake
 from nfc_authenticator.service_crypto import authentication_signature_payload
 from nfc_authenticator.service_manifest import ServiceIdentity, ServicePrivacyConfig, manifest_hash
+from nfc_authenticator.storage import JsonObject, SQLiteStore
+
+Credentials = dict[str, tuple[ec.EllipticCurvePrivateKey, bytes]]
+Service = tuple[ReferenceBackend, Credentials, list[int]]
 
 
 @pytest.fixture
-def service(tmp_path):
+def service(tmp_path: Path) -> Iterator[Service]:
     identity = ServiceIdentity.load_or_create(tmp_path / "identity.json")
     privacy = ServicePrivacyConfig(
         "test.service",
@@ -29,8 +36,8 @@ def service(tmp_path):
         {"service_user_id": "Identify", "authentication_public_key": "Verify"},
         "test@example.test",
     )
-    db = AuthDatabase(tmp_path / "credentials.sqlite")
-    credentials = {}
+    db = SQLiteStore(tmp_path / "credentials.sqlite")
+    credentials: Credentials = {}
     for user in ("first-user", "second-user"):
         key = ec.generate_private_key(ec.SECP256R1())
         secret = secrets.token_bytes(32)
@@ -47,7 +54,7 @@ def service(tmp_path):
         db.close()
 
 
-def discovery_response(request, user="second-user"):
+def discovery_response(request: JsonObject, user: str = "second-user") -> JsonObject:
     return {
         "protocol_version": 2,
         "service_id": request["signed_manifest"]["manifest"]["service_id"],
@@ -58,9 +65,22 @@ def discovery_response(request, user="second-user"):
     }
 
 
-def proof(backend, challenge, credentials, user="second-user", wrong_nonce=False, wrong_key=False):
+def proof(
+    backend: ReferenceBackend,
+    challenge: JsonObject,
+    credentials: Credentials,
+    user: str = "second-user",
+    wrong_nonce: bool = False,
+    wrong_key: bool = False,
+) -> JsonObject:
     key, secret = credentials[user]
-    nonce = backend.attempts[challenge["login_id"]][2]["nonce"]
+    nonce = json.loads(
+        AESGCM(secret).decrypt(
+            base64.b64decode(challenge["request"]["iv"]),
+            base64.b64decode(challenge["request"]["ciphertext"]),
+            f"nfcauth-v2|authentication-request|{backend.privacy.service_id}".encode(),
+        )
+    )["nonce"]
     if wrong_nonce:
         nonce = "wrong"
     if wrong_key:
@@ -87,7 +107,7 @@ def proof(backend, challenge, credentials, user="second-user", wrong_nonce=False
     }
 
 
-def test_phone_selects_second_credential_and_id_alone_never_authenticates(service):
+def test_phone_selects_second_credential_and_id_alone_never_authenticates(service: Service) -> None:
     backend, credentials, _ = service
     discovery = backend.start_discovery("ab" * 32)
     challenge = backend.create_challenge(discovery["id"], discovery_response(discovery["request"]))
@@ -98,7 +118,7 @@ def test_phone_selects_second_credential_and_id_alone_never_authenticates(servic
 
 
 @pytest.mark.parametrize("field", ["service_id", "manifest_hash", "discovery_nonce", "transport_binding"])
-def test_changed_discovery_context_is_rejected(service, field):
+def test_changed_discovery_context_is_rejected(service: Service, field: str) -> None:
     backend, _, _ = service
     discovery = backend.start_discovery("ab" * 32)
     response = discovery_response(discovery["request"])
@@ -107,10 +127,10 @@ def test_changed_discovery_context_is_rejected(service, field):
         backend.create_challenge(discovery["id"], response)
 
 
-def test_expired_and_other_reader_discovery_are_rejected(service):
+def test_expired_and_other_reader_discovery_are_rejected(service: Service) -> None:
     backend, _, clock = service
     discovery = backend.start_discovery("ab" * 32)
-    other = ReferenceBackend(backend.identity, backend.privacy, backend.store)
+    other = ReferenceBackend(backend.identity, backend.privacy, backend.store, reader_id="another-reader")
     with pytest.raises(ValueError):
         other.create_challenge(discovery["id"], discovery_response(discovery["request"]))
     clock[0] += 121
@@ -119,7 +139,7 @@ def test_expired_and_other_reader_discovery_are_rejected(service):
 
 
 @pytest.mark.parametrize("fault", ["wrong_nonce", "wrong_key", "revoked", "unknown", "empty"])
-def test_credential_id_cannot_bypass_proof(service, fault):
+def test_credential_id_cannot_bypass_proof(service: Service, fault: str) -> None:
     backend, credentials, _ = service
     discovery = backend.start_discovery("ab" * 32)
     if fault == "unknown":
@@ -131,12 +151,13 @@ def test_credential_id_cannot_bypass_proof(service, fault):
         backend, challenge, credentials, wrong_nonce=fault == "wrong_nonce", wrong_key=fault == "wrong_key"
     )
     if fault == "revoked":
+        assert isinstance(backend.store, SQLiteStore)
         backend.store.remove_registration("second-user")
     with pytest.raises((ValueError, KeyError, InvalidSignature)):
         backend.complete(challenge["login_id"], {} if fault == "empty" else response)
 
 
-def test_discovery_signature_binds_service_manifest_nonce_and_fresh_transport(service):
+def test_discovery_signature_binds_service_manifest_nonce_and_fresh_transport(service: Service) -> None:
     backend, _, _ = service
     discovery = backend.start_discovery("ab" * 32)["request"]
     digest = manifest_hash(discovery["signed_manifest"]["manifest"])
@@ -155,7 +176,7 @@ def test_discovery_signature_binds_service_manifest_nonce_and_fresh_transport(se
         )
 
 
-def test_binding_matches_phone_and_changes_on_fresh_handshake():
+def test_binding_matches_phone_and_changes_on_fresh_handshake() -> None:
     initiator = SessionInitiator.create()
     id_, reader = _parse_handshake(initiator.request)
     phone_key = ec.generate_private_key(ec.SECP256R1())
@@ -163,3 +184,83 @@ def test_binding_matches_phone_and_changes_on_fresh_handshake():
     reader_session = initiator.complete(_encode_handshake(id_, phone_key.public_key()))
     assert phone.discovery_binding == reader_session.discovery_binding
     assert len(phone.discovery_binding) == 64
+
+
+def test_credentials_and_both_attempt_stages_survive_reopening(service: Service, tmp_path: Path) -> None:
+    backend, credentials, _ = service
+    discovery = backend.start_discovery("ab" * 32)
+    assert isinstance(backend.store, SQLiteStore)
+    backend.store.close()
+    path = tmp_path / "credentials.sqlite"
+    with SQLiteStore(path) as store:
+        restarted = ReferenceBackend(backend.identity, backend.privacy, store, clock=backend.clock)
+        challenge = restarted.create_challenge(discovery["id"], discovery_response(discovery["request"]))
+        response = proof(restarted, challenge, credentials)
+    with SQLiteStore(path) as store:
+        restarted = ReferenceBackend(backend.identity, backend.privacy, store, clock=backend.clock)
+        assert restarted.complete(challenge["login_id"], response) == "second-user"
+    with SQLiteStore(path) as store:
+        restarted = ReferenceBackend(backend.identity, backend.privacy, store, clock=backend.clock)
+        with pytest.raises(ValueError, match="consumed"):
+            restarted.complete(challenge["login_id"], response)
+
+
+def test_failed_proof_consumption_is_committed(service: Service, tmp_path: Path) -> None:
+    backend, credentials, _ = service
+    discovery = backend.start_discovery("ab" * 32)
+    challenge = backend.create_challenge(discovery["id"], discovery_response(discovery["request"]))
+    valid = proof(backend, challenge, credentials)
+    with pytest.raises(InvalidSignature):
+        backend.complete(challenge["login_id"], proof(backend, challenge, credentials, wrong_key=True))
+    with SQLiteStore(tmp_path / "credentials.sqlite") as store:
+        other = ReferenceBackend(backend.identity, backend.privacy, store, clock=backend.clock)
+        with pytest.raises(ValueError, match="consumed"):
+            other.complete(challenge["login_id"], valid)
+
+
+def test_wrong_reader_does_not_consume_another_readers_attempt(service: Service) -> None:
+    backend, _, _ = service
+    discovery = backend.start_discovery("ab" * 32)
+    other = ReferenceBackend(backend.identity, backend.privacy, backend.store, clock=backend.clock, reader_id="other")
+    response = discovery_response(discovery["request"])
+    with pytest.raises(ValueError):
+        other.create_challenge(discovery["id"], response)
+    assert backend.create_challenge(discovery["id"], response)["login_id"]
+
+
+def test_only_one_connection_can_consume_an_attempt(tmp_path: Path) -> None:
+    path = tmp_path / "shared.sqlite"
+    with SQLiteStore(path) as store:
+        attempt = store.save_attempt("service", "reader", "discovery", {"test": True}, 1000)
+    barrier = Barrier(2)
+
+    def consume(_: int) -> str:
+        with SQLiteStore(path) as store:
+            barrier.wait(timeout=5)
+            try:
+                store.consume_attempt("service", "reader", attempt, "discovery", 1001)
+                return "accepted"
+            except ValueError:
+                return "rejected"
+
+    with ThreadPoolExecutor(max_workers=2) as workers:
+        assert sorted(workers.map(consume, range(2))) == ["accepted", "rejected"]
+
+
+def test_pending_limit_and_expiry_are_shared_by_connections(tmp_path: Path) -> None:
+    path = tmp_path / "shared.sqlite"
+    with SQLiteStore(path) as first, SQLiteStore(path) as second:
+        for _ in range(256):
+            first.save_attempt("service", "reader", "discovery", {}, 1000)
+        with pytest.raises(ValueError, match="Too many"):
+            second.save_attempt("service", "reader", "discovery", {}, 1001)
+        assert second.save_attempt("service", "reader", "discovery", {}, 1120)
+        assert first.save_attempt("service", "different-reader", "discovery", {}, 1001)
+
+
+def test_other_service_cannot_consume_attempt(tmp_path: Path) -> None:
+    with SQLiteStore(tmp_path / "shared.sqlite") as store:
+        attempt = store.save_attempt("service", "reader", "discovery", {"test": True}, 1000)
+        with pytest.raises(ValueError):
+            store.consume_attempt("different-service", "reader", attempt, "discovery", 1001)
+        assert store.consume_attempt("service", "reader", attempt, "discovery", 1001) == {"test": True}

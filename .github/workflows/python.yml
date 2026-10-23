@@ -27,7 +27,13 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        python -m pip install build pytest cryptography
+        python -m pip install build pytest mypy
+        python -m pip install .
+
+    - name: Check adapter type annotations
+      run: >-
+        python -m mypy --strict --follow-imports=silent
+        nfc_authenticator/backend.py nfc_authenticator/storage.py nfc_authenticator/discovery.py
 
     - name: Test protocol and reference backend
       run: python -m pytest -q
