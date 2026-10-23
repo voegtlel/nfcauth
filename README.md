@@ -32,6 +32,15 @@ services.
 
 ## Cryptographic protocol
 
+Username-free login uses [session-bound credential discovery](docs/credential-discovery.md):
+the phone first verifies its approved service, supplies an opaque service-specific
+credential ID, then proves possession through the existing nonce/signature flow.
+The Python reader and [backend adapter](python/nfc_authenticator/backend.py) support
+multiple enrolled users. The typed adapter stores credentials and single-use attempts
+without choosing a communication protocol: credentials persist in SQLite, while
+pending attempts exist only in a process-local Python dictionary. Call it directly or
+build your own HTTP, IPC or other proxy around its methods.
+
 Protocol version 2 has two encryption layers:
 
 1. Every NFC presentation starts a fresh ephemeral P-256 ECDH session. Both
@@ -141,13 +150,14 @@ another tag.
 ## Run the Python reference reader
 
 The Python reader requires Python 3.9+, the `cryptography` package, and the
-Adafruit PN532/Raspberry Pi dependencies declared in `python/pyproject.toml`.
+Adafruit PN532/Raspberry Pi dependencies in the optional `reader` extra. Using the
+SQLite backend alone does not install or import Raspberry Pi libraries.
 
 ```bash
 cd python
-uv sync
-uv run nfc-reader-auth register
-uv run nfc-reader-auth auth
+uv sync --extra reader
+uv run --extra reader nfc-reader-auth register
+uv run --extra reader nfc-reader-auth auth
 ```
 
 On first use, the reader creates a persistent P-256 service signing/encryption

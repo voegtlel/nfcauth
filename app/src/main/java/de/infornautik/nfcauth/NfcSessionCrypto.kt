@@ -59,6 +59,13 @@ class NfcSessionCrypto private constructor(
     private var receiveCounter = receiveCounter
     private var terminated = false
 
+    fun discoveryBinding(): String {
+        val mac = Mac.getInstance("HmacSHA256")
+        mac.init(SecretKeySpec(key.encoded, "HmacSHA256"))
+        return mac.doFinal("nfcauth-v2-credential-discovery-binding".toByteArray(Charsets.UTF_8))
+            .joinToString("") { "%02x".format(it.toInt() and 0xff) }
+    }
+
     @Synchronized
     fun encrypt(plaintext: ByteArray, purpose: String): ByteArray {
         require(!terminated) { "Encrypted NFC session is terminated" }

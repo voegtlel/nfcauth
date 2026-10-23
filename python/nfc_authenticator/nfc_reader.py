@@ -6,41 +6,38 @@ import argparse
 import base64
 import json
 import logging
-import secrets
-import sqlite3
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Literal
 
-from cryptography.exceptions import InvalidSignature
-from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 
+from .backend import ReferenceBackend
+from .discovery import PURPOSE_DISCOVERY
 from .protocol_crypto import NfcSession, ProtocolCryptoError, SessionInitiator
 from .service_crypto import (
-    authentication_signature_payload,
-    decrypt_authentication_response,
     decrypt_registration_response,
-    encrypt_authentication_request,
     encrypt_registration_acknowledgement,
 )
 from .service_manifest import (
     FIELD_ALIAS,
     FIELD_AUTHENTICATION_PUBLIC_KEY,
     FIELD_SERVICE_USER_ID,
-    PROTOCOL_VERSION,
     ServiceIdentity,
     ServicePrivacyConfig,
     manifest_hash,
 )
+from .storage import RegisteredDevice as RegisteredDevice  # noqa: PLC0414 - compatibility re-export.
+from .storage import SQLiteStore as AuthDatabase
 
 SELECT_APPLICATION = b"\x00\xa4\x04\x00"
 SESSION_INIT = b"\xd0\x00\x00\x00"
 REGISTRATION = b"\xd0\x01\x00\x00"
 AUTHENTICATION = b"\xd0\x02\x00\x00"
 REGISTRATION_COMPLETE = b"\xd0\x04\x00\x00"
+DISCOVERY = b"\xd0\x05\x00\x00"
 GET_RESPONSE = b"\x00\xc0\x00\x00"
 SUCCESS = b"\x90\x00"
 MORE_DATA = 0x61
@@ -63,87 +60,6 @@ class ReaderConfig:
     auth: Literal["background", "biometric"]
     aid: bytes = bytes.fromhex("F064652E696E666F726E617574696B")
     nonce_length: int = 16
-
-
-@dataclass(frozen=True)
-class RegisteredDevice:
-    user_id: str
-    alias: str | None
-    authentication_public_key: str
-    session_key: bytes
-
-
-class AuthDatabase:
-    """Service-side credential storage; callers must protect this local file."""
-
-    def __init__(self, db_path: str | Path = "auth.db"):
-        self.conn = sqlite3.connect(db_path)
-        self.conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS registered_devices_v2 (
-                service_id TEXT NOT NULL,
-                user_id TEXT PRIMARY KEY,
-                alias TEXT,
-                authentication_public_key TEXT NOT NULL,
-                session_key TEXT NOT NULL,
-                registered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-            """
-        )
-        self.conn.commit()
-
-    def register_device(
-        self,
-        service_id: str,
-        user_id: str,
-        alias: str | None,
-        authentication_public_key: str,
-        session_key: bytes,
-    ) -> None:
-        self.conn.execute(
-            """
-            INSERT INTO registered_devices_v2 (
-                service_id, user_id, alias, authentication_public_key, session_key
-            ) VALUES (?, ?, ?, ?, ?)
-            """,
-            (
-                service_id,
-                user_id,
-                alias,
-                authentication_public_key,
-                base64.b64encode(session_key).decode("ascii"),
-            ),
-        )
-        self.conn.commit()
-
-    def remove_registration(self, user_id: str) -> None:
-        self.conn.execute(
-            "DELETE FROM registered_devices_v2 WHERE user_id = ?",
-            (user_id,),
-        )
-        self.conn.commit()
-
-    def get_default_device(self, service_id: str) -> RegisteredDevice | None:
-        row = self.conn.execute(
-            """
-            SELECT user_id, alias, authentication_public_key, session_key
-            FROM registered_devices_v2
-            WHERE service_id = ?
-            ORDER BY registered_at
-            LIMIT 1
-            """,
-            (service_id,),
-        ).fetchone()
-        if row is None:
-            return None
-        try:
-            session_key = base64.b64decode(row[3], validate=True)
-        except ValueError as error:
-            raise NFCReaderException("Stored service credential is malformed") from error
-        return RegisteredDevice(row[0], row[1], row[2], session_key)
-
-    def close(self) -> None:
-        self.conn.close()
 
 
 class NFCConnector(ABC):
@@ -251,8 +167,7 @@ class NFCAuthenticator:
             raise NFCReaderException("Encrypted NFC session has not been established")
         encrypted = self.session.encrypt(plaintext, purpose)
         chunks = [
-            encrypted[offset : offset + MAX_COMMAND_DATA]
-            for offset in range(0, len(encrypted), MAX_COMMAND_DATA)
+            encrypted[offset : offset + MAX_COMMAND_DATA] for offset in range(0, len(encrypted), MAX_COMMAND_DATA)
         ]
         if not chunks or len(chunks) > 256:
             raise NFCReaderException("Encrypted NFC request exceeds protocol limits")
@@ -378,61 +293,27 @@ class NFCAuthenticator:
         self.pending_signed_manifest = None
 
     def authenticate(self) -> None:
-        device = self.db.get_default_device(self.config.privacy.service_id)
-        if device is None:
-            raise NFCReaderException("No local registration is available")
-
-        nonce = secrets.token_hex(self.config.nonce_length)
-        envelope, _request = encrypt_authentication_request(
-            self.config.privacy.service_id,
-            self.identity.encryption_private_key.public_key(),
-            device.session_key,
-            nonce,
-            self.config.auth,
-        )
+        if self.session is None:
+            raise NFCReaderException("Establish an encrypted NFC session before discovery")
+        backend = ReferenceBackend(self.identity, self.config.privacy, self.db, self.config.auth)
+        discovery = backend.start_discovery(self.session.discovery_binding)
         status = self.send_encrypted_command(
-            AUTHENTICATION,
-            json.dumps(envelope, separators=(",", ":")).encode("utf-8"),
-            PURPOSE_AUTHENTICATION,
+            DISCOVERY,
+            json.dumps(discovery["request"], separators=(",", ":")).encode(),
+            PURPOSE_DISCOVERY,
         )
-        encrypted_response = self.decrypt_response(status, PURPOSE_AUTHENTICATION)
         try:
-            response = decrypt_authentication_response(
-                json.loads(encrypted_response),
-                self.config.privacy.service_id,
-                self.identity.encryption_private_key.public_key(),
-                device.session_key,
+            response = json.loads(self.decrypt_response(status, PURPOSE_DISCOVERY))
+            challenge = backend.create_challenge(discovery["id"], response)
+            status = self.send_encrypted_command(
+                AUTHENTICATION,
+                json.dumps(challenge["request"], separators=(",", ":")).encode(),
+                PURPOSE_AUTHENTICATION,
             )
+            proof = json.loads(self.decrypt_response(status, PURPOSE_AUTHENTICATION))
+            backend.complete(challenge["login_id"], proof)
         except Exception as error:
-            raise NFCReaderException("Authentication response was invalid") from error
-
-        if (
-            response.get("protocol_version") != PROTOCOL_VERSION
-            or response.get("service_id") != self.config.privacy.service_id
-            or response.get("nonce") != nonce
-            or response.get("user_id") != device.user_id
-        ):
-            raise NFCReaderException("Authentication response did not match the request")
-
-        try:
-            signature = base64.b64decode(response["signature"], validate=True)
-            public_key = serialization.load_der_public_key(
-                base64.b64decode(device.authentication_public_key, validate=True)
-            )
-            if not isinstance(public_key, ec.EllipticCurvePublicKey):
-                raise TypeError("Unexpected authentication key type")
-            public_key.verify(
-                signature,
-                authentication_signature_payload(
-                    self.config.privacy.service_id,
-                    nonce,
-                    self.config.auth,
-                    device.user_id,
-                ),
-                ec.ECDSA(hashes.SHA256()),
-            )
-        except (InvalidSignature, KeyError, TypeError, ValueError) as error:
-            raise NFCReaderException("Authentication signature was invalid") from error
+            raise NFCReaderException("Credential discovery or authentication proof was rejected") from error
 
     @staticmethod
     def _validate_authentication_public_key(encoded: str) -> None:
