@@ -29,7 +29,7 @@ Request:
 
 ```json
 {
-  "signed_manifest": {"protocol_version": 2, "manifest": "â€¦", "manifest_signing_public_key": "â€¦", "manifest_signature": "â€¦"},
+  "signed_manifest": {"protocol_version": 2, "manifest": "…", "manifest_signing_public_key": "…", "manifest_signature": "…"},
   "discovery_nonce": "64 lowercase hex characters",
   "transport_binding": "64 lowercase hex characters",
   "discovery_signature": "base64 DER ECDSA signature"
