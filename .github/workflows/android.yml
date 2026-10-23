@@ -123,7 +123,7 @@ jobs:
         PLAY_PACKAGE_NAME: de.infornautik.nfcauth
         PLAY_AAB_PATH: app/build/outputs/bundle/release/app-release.aab
         PLAY_TRACK: internal
-        PLAY_RELEASE_STATUS: draft
+        PLAY_RELEASE_STATUS: completed
       shell: python
       run: |
         import os
