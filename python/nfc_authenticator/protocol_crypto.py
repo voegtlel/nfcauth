@@ -2,15 +2,14 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 import hmac
 import secrets
+from dataclasses import dataclass, field
 
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
-
 
 PROTOCOL_VERSION = 2
 SESSION_ID_LENGTH = 16
@@ -39,6 +38,11 @@ class NfcSession:
     _send_counter: int = field(default=0, init=False, repr=False)
     _receive_counter: int = field(default=0, init=False, repr=False)
     _terminated: bool = field(default=False, init=False, repr=False)
+
+    @property
+    def discovery_binding(self) -> str:
+        """Bind signed service discovery to this session without revealing its key."""
+        return hmac.new(self.key, b"nfcauth-v2-credential-discovery-binding", "sha256").hexdigest()
 
     def encrypt(self, plaintext: bytes, purpose: str) -> bytes:
         if not purpose:

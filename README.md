@@ -32,6 +32,12 @@ services.
 
 ## Cryptographic protocol
 
+Username-free login uses [session-bound credential discovery](docs/credential-discovery.md):
+the phone first verifies its approved service, supplies an opaque service-specific
+credential ID, then proves possession through the existing nonce/signature flow.
+The Python reader and [backend reference](python/nfc_authenticator/backend.py) support
+multiple enrolled users; an optional mTLS API example is included.
+
 Protocol version 2 has two encryption layers:
 
 1. Every NFC presentation starts a fresh ephemeral P-256 ECDH session. Both

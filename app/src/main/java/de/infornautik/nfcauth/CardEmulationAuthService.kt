@@ -43,6 +43,10 @@ class CardEmulationAuthService : HostApduService() {
                 isGetResponseCommand(commandApdu) -> processGetResponse(commandApdu)
                 commandApdu[0] != PROPRIETARY_CLASS -> RESP_UNKNOWN_COMMAND
                 commandApdu[1] == INS_SESSION_INIT -> processSessionInit(commandApdu)
+                commandApdu[1] == INS_DISCOVERY -> processIncomingChunk(
+                    commandApdu, INS_DISCOVERY.toInt() and 0xff,
+                    PURPOSE_DISCOVERY, ::computeDiscoveryResponse,
+                )
                 commandApdu[1] == INS_REGISTRATION -> processIncomingChunk(
                     commandApdu,
                     INS_REGISTRATION.toInt() and 0xff,
@@ -153,6 +157,42 @@ class CardEmulationAuthService : HostApduService() {
             RESP_SUCCESS
         } catch (_: Exception) {
             RESP_ERROR
+        }
+    }
+
+    private fun computeDiscoveryResponse(rawEnvelope: String): ByteArray {
+        return try {
+            val request = JSONObject(rawEnvelope)
+            val signed = request.getJSONObject("signed_manifest")
+            val verified = ServiceManifestParser.parseAndVerify(signed.toString())
+            val existing = DiscoveryProof.requireApproved(
+                authDatabase.getReaderInfo(verified.manifest.serviceId), verified,
+            )
+            val binding = activeTransportSession?.discoveryBinding()
+                ?: return RESP_SECURITY_STATUS_NOT_SATISFIED
+            if (request.getString("transport_binding") != binding) {
+                return RESP_SECURITY_STATUS_NOT_SATISFIED
+            }
+            val nonce = request.getString("discovery_nonce")
+            val key = java.security.KeyFactory.getInstance("EC").generatePublic(
+                java.security.spec.X509EncodedKeySpec(
+                    android.util.Base64.decode(signed.getString("manifest_signing_public_key"), android.util.Base64.DEFAULT),
+                ),
+            )
+            val proof = DiscoveryProof.payload(existing.serviceId, verified.manifestHash, nonce, binding)
+            val signature = android.util.Base64.decode(request.getString("discovery_signature"), android.util.Base64.DEFAULT)
+            if (!DiscoveryProof.verify(key, proof, signature)) return RESP_SECURITY_STATUS_NOT_SATISFIED
+            val response = JSONObject().apply {
+                put("protocol_version", ServiceManifestParser.PROTOCOL_VERSION)
+                put("service_id", existing.serviceId)
+                put("service_user_id", existing.userId)
+                put("manifest_hash", verified.manifestHash)
+                put("discovery_nonce", nonce)
+                put("transport_binding", binding)
+            }
+            setEncryptedPendingResponse(response.toString().toByteArray(Charsets.UTF_8), PURPOSE_DISCOVERY)
+        } catch (_: Exception) {
+            RESP_SECURITY_STATUS_NOT_SATISFIED
         }
     }
 
@@ -454,6 +494,8 @@ class CardEmulationAuthService : HostApduService() {
         )
         private val PROPRIETARY_CLASS: Byte = 0xD0.toByte()
         private const val INS_SESSION_INIT: Byte = 0x00
+        private const val INS_DISCOVERY: Byte = 0x05
+        private const val PURPOSE_DISCOVERY = "credential-discovery"
         private const val INS_REGISTRATION: Byte = 0x01
         private const val INS_AUTHENTICATION: Byte = 0x02
         private const val INS_USER_NOT_REGISTERED: Byte = 0x03
