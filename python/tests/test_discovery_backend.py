@@ -1,7 +1,6 @@
 import base64
 import json
 import secrets
-import sqlite3
 from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -254,21 +253,6 @@ def test_pending_limit_and_expiry_are_scoped_in_memory(tmp_path: Path) -> None:
             store.save_attempt("service", "reader", "discovery", {}, 1001)
         assert store.save_attempt("service", "reader", "discovery", {}, 1120)
         assert store.save_attempt("service", "different-reader", "discovery", {}, 1001)
-
-
-def test_attempt_table_is_removed_and_never_recreated(tmp_path: Path) -> None:
-    path = tmp_path / "old.sqlite"
-    with sqlite3.connect(path) as connection:
-        connection.execute("CREATE TABLE authentication_attempts_v2 (id TEXT PRIMARY KEY)")
-        connection.execute(
-            "CREATE INDEX authentication_attempt_scope_v2 ON authentication_attempts_v2(id)"
-        )
-    with SQLiteStore(path) as store:
-        store.save_attempt("service", "reader", "discovery", {"test": True}, 1000)
-        persisted = store.conn.execute(
-            "SELECT name FROM sqlite_master WHERE name LIKE 'authentication_attempt%'")
-        assert persisted.fetchall() == []
-        assert len(store.attempts) == 1
 
 
 def test_other_service_cannot_consume_attempt(tmp_path: Path) -> None:

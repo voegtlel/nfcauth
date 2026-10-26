@@ -81,11 +81,6 @@ class SQLiteStore:
                     registered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
-            # Earlier prerelease builds persisted attempts. They are disposable,
-            # so remove that storage when opening an existing database.
-            self.conn.execute("DROP INDEX IF EXISTS authentication_attempt_scope_v2")
-            self.conn.execute("DROP TABLE IF EXISTS authentication_attempts_v2")
-
     def register_device(
         self,
         service_id: str,

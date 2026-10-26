@@ -126,13 +126,10 @@ Discovery and challenge creation alone never authenticate the caller.
 
 ### Persistence and enrollment
 
-`SQLiteStore` preserves the existing `registered_devices_v2` credential schema.
-Pending attempts are never inserted into SQLite. When an earlier prerelease database
-contains the obsolete `authentication_attempts_v2` table, opening it removes that
-table and its disposable attempts while preserving registered credentials. The
-reader's `AuthDatabase` import remains a compatibility alias. The Python reader uses
-this same adapter locally and selects the phone's enrolled ID rather than guessing
-the first registration.
+`SQLiteStore` persists enrolled credentials in `registered_devices_v2`. Pending
+attempts are never inserted into SQLite. The Python reader uses this same adapter
+locally and selects the phone's enrolled ID rather than guessing the first
+registration.
 
 Credentials are supplied by the existing consent/acknowledgement registration flow;
 `register_device(...)` and `remove_registration(...)` allow the host application to
