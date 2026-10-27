@@ -141,7 +141,7 @@ class SQLiteStore:
             )
 
     @staticmethod
-    def _device(row: tuple | None) -> RegisteredDevice | None:
+    def _device(row: tuple[Any, ...] | None) -> RegisteredDevice | None:
         if row is None:
             return None
         return RegisteredDevice(

@@ -93,6 +93,8 @@ class ReferenceBackend:
         with self.lock:
             attempt = self._consume(login_id, "proof")
             credential_id = attempt["credential_id"]
+            if not isinstance(credential_id, str):
+                raise ValueError("Authentication attempt has an invalid credential ID")
             credential = self.store.get_device(self.privacy.service_id, credential_id)
             if credential is None:
                 raise ValueError("Credential was revoked")
@@ -192,6 +194,8 @@ class ReferenceBackend:
     def confirm_rotation(self, result: JsonObject, encrypted_ack: JsonObject) -> str:
         with self.lock:
             credential_id = result["credential_id"]
+            if not isinstance(credential_id, str):
+                raise ValueError("Rotation result has an invalid credential ID")
             credential = self.store.get_device(self.privacy.service_id, credential_id)
             if credential is None or credential.key_epoch != result["key_epoch"]:
                 raise ValueError("Credential rotation is unavailable")
