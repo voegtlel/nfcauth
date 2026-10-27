@@ -102,7 +102,10 @@ def create_app(
         return provider()
 
     @app.post("/v1/transactions", status_code=201)
-    async def create_transaction(body: TransactionCreate, identity: TerminalIdentity = Depends(terminal)) -> dict:
+    async def create_transaction(
+        body: TransactionCreate,
+        identity: TerminalIdentity = Depends(terminal),  # noqa: B008
+    ) -> dict:
         try:
             value = await service.create_transaction(
                 identity, body.audience, body.scopes, body.action, body.assurance
@@ -115,7 +118,7 @@ def create_app(
     async def bind_session(
         transaction_id: str,
         body: SessionBindingBody,
-        identity: TerminalIdentity = Depends(terminal),
+        identity: TerminalIdentity = Depends(terminal),  # noqa: B008
     ) -> dict:
         try:
             return await service.bind_session(transaction_id, identity, SessionBinding(**body.model_dump()))
@@ -126,7 +129,7 @@ def create_app(
     async def complete_transaction(
         transaction_id: str,
         body: AssertionBody,
-        identity: TerminalIdentity = Depends(terminal),
+        identity: TerminalIdentity = Depends(terminal),  # noqa: B008
     ) -> dict:
         if transaction_id != body.transaction_id:
             raise HTTPException(400, "Transaction ID does not match request body")
@@ -142,7 +145,7 @@ def create_app(
     async def bind_delivery_session(
         transaction_id: str,
         body: SessionBindingBody,
-        identity: TerminalIdentity = Depends(terminal),
+        identity: TerminalIdentity = Depends(terminal),  # noqa: B008
     ) -> dict:
         try:
             return await service.bind_delivery_session(

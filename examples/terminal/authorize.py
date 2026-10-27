@@ -5,10 +5,10 @@ from __future__ import annotations
 import asyncio
 import os
 
+from pn532_transport import Pn532Transport
+
 from nfc_authenticator.terminal import BridgeClient, TerminalController
 from nfc_authenticator.terminal_apdu import ApduPhoneChannel
-
-from pn532_transport import Pn532Transport
 
 
 async def main() -> None:

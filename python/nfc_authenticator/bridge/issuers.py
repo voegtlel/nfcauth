@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import time
 import base64
+import time
 from datetime import timedelta
 
 import httpx
@@ -132,8 +132,9 @@ AuthentikTokenIssuer = Rfc8693TokenIssuer
 def _public_jwk(private_key_pem: bytes, key_id: str) -> dict:
     key = serialization.load_pem_private_key(private_key_pem, password=None)
     if not isinstance(key, ec.EllipticCurvePrivateKey) or not isinstance(key.curve, ec.SECP256R1):
-        raise ValueError("Token and federation signing keys must be P-256")
+        raise TypeError("Token and federation signing keys must be P-256")
     numbers = key.public_key().public_numbers()
+
     def encode(value: int) -> str:
         return base64.urlsafe_b64encode(value.to_bytes(32, "big")).rstrip(b"=").decode()
 

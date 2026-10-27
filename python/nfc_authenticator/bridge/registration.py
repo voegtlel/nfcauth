@@ -153,7 +153,7 @@ class RegistrationCoordinator:
             raise ValueError("Unsupported credential profile")
         key = serialization.load_der_public_key(base64.b64decode(public_key, validate=True))
         if not isinstance(key, ec.EllipticCurvePublicKey) or not isinstance(key.curve, ec.SECP256R1):
-            raise ValueError("Registration key must be P-256")
+            raise TypeError("Registration key must be P-256")
         verifier = secrets.token_urlsafe(48)
         attempt = RegistrationAttempt(
             secrets.token_urlsafe(24),

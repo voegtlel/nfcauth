@@ -127,7 +127,7 @@ class AuthorizationAssertion:
     def payload(self) -> bytes:
         return ASSERTION_DOMAIN + canonical_json(self.unsigned_document())
 
-    def with_signature(self, private_key: ec.EllipticCurvePrivateKey) -> "AuthorizationAssertion":
+    def with_signature(self, private_key: ec.EllipticCurvePrivateKey) -> AuthorizationAssertion:
         signature = private_key.sign(self.payload(), ec.ECDSA(hashes.SHA256()))
         return AuthorizationAssertion(**{**asdict(self), "signature": _b64(signature)})
 
@@ -146,7 +146,7 @@ class AuthorizationAssertion:
             raise ValueError("Assertion is invalid or expired")
         public_key = serialization.load_der_public_key(base64.b64decode(public_key_der_b64, validate=True))
         if not isinstance(public_key, ec.EllipticCurvePublicKey) or not isinstance(public_key.curve, ec.SECP256R1):
-            raise ValueError("Credential must use P-256")
+            raise TypeError("Credential must use P-256")
         public_key.verify(_unb64(self.signature), self.payload(), ec.ECDSA(hashes.SHA256()))
 
 
