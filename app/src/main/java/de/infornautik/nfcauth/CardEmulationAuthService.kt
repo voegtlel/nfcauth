@@ -74,8 +74,9 @@ abstract class BaseCardEmulationAuthService : HostApduService() {
         return try {
             val envelope = JSONObject(raw)
             val request = envelope.getJSONObject("request")
+            val serviceOrigin = request.getString("service_origin")
             val serviceId = request.getString("service_id")
-            val registration = database.getReaderInfo(serviceId, authenticationProfile)
+            val registration = database.getReaderInfo(serviceOrigin, serviceId, authenticationProfile)
                 ?: return UNAUTHORIZED.also { showNotRegistered() }
             val verified = AuthorizationRequestVerifier.verifyAuthorization(
                 envelope,
@@ -90,6 +91,7 @@ abstract class BaseCardEmulationAuthService : HostApduService() {
                     PendingAuthorization(
                         verified.request,
                         requestHash,
+                        registration.serviceOrigin,
                         serviceId,
                         verified.request.getString("terminal_id"),
                         registration.credentialId,
@@ -114,7 +116,11 @@ abstract class BaseCardEmulationAuthService : HostApduService() {
         if (SystemClock.elapsedRealtime() - sessionStartedAt > SESSION_BIND_TIMEOUT_MS) return SECURITY_ERROR
         return try {
             val pending = PendingAuthorizationStore.get() ?: return CONDITIONS_ERROR
-            val registration = database.getReaderInfo(pending.serviceId, authenticationProfile) ?: return UNAUTHORIZED
+            val registration = database.getReaderInfo(
+                pending.serviceOrigin,
+                pending.serviceId,
+                authenticationProfile,
+            ) ?: return UNAUTHORIZED
             val envelope = JSONObject(raw)
             val verified = AuthorizationRequestVerifier.verifyDelivery(
                 envelope,
@@ -151,7 +157,10 @@ abstract class BaseCardEmulationAuthService : HostApduService() {
             .put("approved_at", System.currentTimeMillis() / 1000L)
         val payload = ASSERTION_DOMAIN.toByteArray() +
             AuthorizationRequestVerifier.canonical(unsigned).toByteArray(Charsets.UTF_8)
-        return unsigned.put("signature", keys.sign(registration.serviceId, authenticationProfile, payload))
+        return unsigned.put(
+            "signature",
+            keys.sign(registration.serviceOrigin, registration.serviceId, authenticationProfile, payload),
+        )
     }
 
     private fun processSessionInit(command: ByteArray): ByteArray {

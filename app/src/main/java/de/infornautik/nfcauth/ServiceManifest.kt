@@ -9,6 +9,7 @@ import java.security.MessageDigest
 import java.security.PublicKey
 import java.security.interfaces.ECPublicKey
 import java.security.spec.X509EncodedKeySpec
+import java.util.Locale
 
 data class ServiceManifest(
     val serviceOrigin: String,
@@ -49,7 +50,7 @@ object ServiceManifestParser {
 
     fun parse(value: JSONObject): ServiceManifest = try {
         require(value.getInt("protocol_version") == PROTOCOL_VERSION)
-        val origin = httpsOrigin(value.getString("service_origin"))
+        val origin = canonicalOrigin(value.getString("service_origin"))
         val policy = httpsUrl(value.getString("privacy_policy_url"))
         val registration = httpsUrl(value.getString("registration_endpoint"))
         require(URI(registration).host == URI(origin).host)
@@ -109,13 +110,22 @@ object ServiceManifestParser {
         else -> field
     }
 
-    private fun httpsOrigin(value: String): String {
+    fun canonicalOrigin(value: String): String {
         val uri = URI(value)
         require(
-            uri.scheme == "https" && !uri.host.isNullOrBlank() && uri.userInfo == null &&
+            uri.scheme.equals("https", ignoreCase = true) && !uri.host.isNullOrBlank() && uri.userInfo == null &&
                 (uri.path.isNullOrBlank() || uri.path == "/") && uri.query == null && uri.fragment == null,
         )
-        return value.trimEnd('/')
+        val port = if (uri.port == 443) -1 else uri.port
+        return URI(
+            "https",
+            null,
+            uri.host.lowercase(Locale.ROOT),
+            port,
+            null,
+            null,
+            null,
+        ).toASCIIString()
     }
 
     private fun httpsUrl(value: String): String {

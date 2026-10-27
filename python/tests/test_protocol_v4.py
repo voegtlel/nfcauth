@@ -19,6 +19,7 @@ from nfc_authenticator.bridge.security import CertificateRequestSigner, verify_s
 from nfc_authenticator.bridge.service import BridgeService
 from nfc_authenticator.bridge.stores import MemoryEnrollmentStore, MemoryTransactionStore
 from nfc_authenticator.protocol_v4 import AuthorizationAssertion, SessionBinding, public_key_der_b64
+from nfc_authenticator.terminal import validate_protected_api_url
 
 
 def b64(value: bytes) -> str:
@@ -200,3 +201,19 @@ async def test_provider_assigns_credential_id_and_completion_requires_phone_key(
     assert credential.credential_id == completed.credential_id
     assert credential.subject == "provider-account-42"
     assert await enrollments.get_credential(credential.credential_id) == credential
+
+
+def test_bearer_destination_requires_secure_transport_or_exact_exception() -> None:
+    assert validate_protected_api_url("https://inventory.example/api") == "https://inventory.example/api"
+    assert validate_protected_api_url("http://127.0.0.1:8080/api") == "http://127.0.0.1:8080/api"
+    with pytest.raises(ValueError):
+        validate_protected_api_url("http://10.0.0.8:8080/api")
+    assert validate_protected_api_url(
+        "http://inventory.internal:8080/api",
+        allowed_insecure_origins=("http://inventory.internal:8080",),
+    ) == "http://inventory.internal:8080/api"
+    with pytest.raises(ValueError):
+        validate_protected_api_url(
+            "http://inventory.internal:9090/api",
+            allowed_insecure_origins=("http://inventory.internal:8080",),
+        )

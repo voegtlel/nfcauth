@@ -32,7 +32,7 @@ class AuthDatabase(context: Context) : SQLiteOpenHelper(context, "auth-v4.db", n
               approved_at INTEGER NOT NULL,
               allowed_audiences TEXT NOT NULL,
               allowed_scopes TEXT NOT NULL,
-              PRIMARY KEY(service_id, authentication_profile)
+              PRIMARY KEY(service_origin, service_id, authentication_profile)
             )
             """.trimIndent(),
         )
@@ -49,10 +49,10 @@ class AuthDatabase(context: Context) : SQLiteOpenHelper(context, "auth-v4.db", n
         return readers
     }
 
-    fun getReaderInfo(serviceId: String, profile: String): ReaderInfo? =
+    fun getReaderInfo(serviceOrigin: String, serviceId: String, profile: String): ReaderInfo? =
         readableDatabase.query(
-            "services", null, "service_id=? AND authentication_profile=?",
-            arrayOf(serviceId, profile), null, null, null,
+            "services", null, "service_origin=? AND service_id=? AND authentication_profile=?",
+            arrayOf(serviceOrigin, serviceId, profile), null, null, null,
         ).use { if (it.moveToFirst()) it.toReader() else null }
 
     fun registerReader(reader: ReaderInfo): Boolean {
@@ -82,9 +82,11 @@ class AuthDatabase(context: Context) : SQLiteOpenHelper(context, "auth-v4.db", n
         ) != -1L
     }
 
-    fun deleteReader(serviceId: String, profile: String): Boolean =
+    fun deleteReader(serviceOrigin: String, serviceId: String, profile: String): Boolean =
         writableDatabase.delete(
-            "services", "service_id=? AND authentication_profile=?", arrayOf(serviceId, profile),
+            "services",
+            "service_origin=? AND service_id=? AND authentication_profile=?",
+            arrayOf(serviceOrigin, serviceId, profile),
         ) > 0
 
     private fun Cursor.toReader(): ReaderInfo? = try {

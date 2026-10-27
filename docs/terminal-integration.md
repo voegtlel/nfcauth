@@ -26,6 +26,13 @@ machine. Applications that already have an APDU framework can implement
 `PhoneChannel` directly. `examples/terminal/authorize.py` is deliberately
 hardware-neutral: call its `authorize(transport)` function with your adapter.
 
+The example refuses to send bearer tokens over plain HTTP by default. HTTPS is
+required for remote APIs, while loopback HTTP is accepted for a same-host API.
+If an internal service mesh or equivalent authenticated encrypted transport
+protects an HTTP hop, list each permitted origin exactly in the comma-separated
+`NFCAUTH_TERMINAL_INSECURE_HTTP_ORIGINS` environment variable. Private IP ranges
+and internal DNS names are never trusted implicitly.
+
 The optional PN532 launcher is `examples/terminal/authorize_pn532.py`. Install
 its hardware dependencies explicitly with
 `pip install 'nfc-authenticator[pn532]'`. They are never installed by the base

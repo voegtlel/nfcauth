@@ -31,4 +31,16 @@ class NfcSessionCryptoTest {
         assertEquals(reader.discoveryBinding(), phone.discoveryBinding())
         assertThrows(Exception::class.java) { phone.decrypt(encrypted, "registration") }
     }
+
+    @Test
+    fun providerOriginIsCanonicalizedBeforeItNamespacesCredentials() {
+        assertEquals(
+            "https://auth.example.com",
+            ServiceManifestParser.canonicalOrigin("HTTPS://AUTH.EXAMPLE.COM:443/"),
+        )
+        assertEquals(
+            "https://auth.example.com:8443",
+            ServiceManifestParser.canonicalOrigin("https://AUTH.EXAMPLE.COM:8443"),
+        )
+    }
 }

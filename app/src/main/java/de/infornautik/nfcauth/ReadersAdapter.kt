@@ -37,7 +37,8 @@ class ReadersAdapter(private val onReaderClick: (ReaderInfo) -> Unit) :
 
     private class ReaderDiffCallback : DiffUtil.ItemCallback<ReaderInfo>() {
         override fun areItemsTheSame(oldItem: ReaderInfo, newItem: ReaderInfo): Boolean =
-            oldItem.serviceId == newItem.serviceId &&
+            oldItem.serviceOrigin == newItem.serviceOrigin &&
+                oldItem.serviceId == newItem.serviceId &&
                 oldItem.authenticationProfile == newItem.authenticationProfile
 
         override fun areContentsTheSame(oldItem: ReaderInfo, newItem: ReaderInfo): Boolean =

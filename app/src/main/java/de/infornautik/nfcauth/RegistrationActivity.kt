@@ -87,10 +87,7 @@ class RegistrationActivity : AppCompatActivity() {
     private fun fetchProvider(input: String) {
         executor.execute {
             try {
-                val origin = URI(input.trim()).let {
-                    URI(it.scheme, null, it.host, it.port, null, null, null).toString().trimEnd('/')
-                }
-                require(origin.startsWith("https://"))
+                val origin = ServiceManifestParser.canonicalOrigin(input.trim())
                 val connection = URL("$origin/.well-known/nfc-authenticator").openConnection() as HttpsURLConnection
                 connection.connectTimeout = 5_000
                 connection.readTimeout = 5_000
@@ -176,7 +173,11 @@ class RegistrationActivity : AppCompatActivity() {
     private fun startAccountLink() {
         val service = verified ?: return fail("Provider registration expired")
         val profile = selectedProfile ?: return fail("Credential profile is missing")
-        val publicKey = keys.getPublicKeyAsString(service.manifest.serviceId, profile)
+        val publicKey = keys.getPublicKeyAsString(
+            service.manifest.serviceOrigin,
+            service.manifest.serviceId,
+            profile,
+        )
         executor.execute {
             try {
                 val response = postJson(
@@ -204,13 +205,19 @@ class RegistrationActivity : AppCompatActivity() {
             biometricRegistrationProof(payload)
         } else {
             val service = verified!!.manifest
-            completeAccountLink(keys.sign(service.serviceId, selectedProfile!!, payload))
+            completeAccountLink(
+                keys.sign(service.serviceOrigin, service.serviceId, selectedProfile!!, payload),
+            )
         }
     }
 
     private fun biometricRegistrationProof(payload: ByteArray) {
         val service = verified?.manifest ?: return fail("Provider registration expired")
-        val signature = keys.signatureForAuthentication(service.serviceId, ServiceManifestParser.PROFILE_BIOMETRIC)
+        val signature = keys.signatureForAuthentication(
+            service.serviceOrigin,
+            service.serviceId,
+            ServiceManifestParser.PROFILE_BIOMETRIC,
+        )
         val prompt = BiometricPrompt(
             this,
             ContextCompat.getMainExecutor(this),

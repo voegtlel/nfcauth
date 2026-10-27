@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import ipaddress
 from dataclasses import dataclass
 from typing import Any, Protocol
+from urllib.parse import urlsplit
 
 import httpx
 
@@ -31,6 +33,44 @@ class TerminalToken:
     token_type: str
     expires_in: int
     scope: str
+
+
+def validate_protected_api_url(
+    url: str,
+    *,
+    allowed_insecure_origins: tuple[str, ...] = (),
+) -> str:
+    """Reject bearer-token destinations without TLS or an explicit local exception.
+
+    Loopback HTTP is suitable for a same-host resource server. Other HTTP
+    origins must be allowlisted exactly and are intended only for deployments
+    where a service mesh or equivalent authenticated transport protects the hop.
+    """
+    parsed = urlsplit(url)
+    if parsed.username is not None or parsed.password is not None or parsed.hostname is None:
+        raise ValueError("Protected API URL must have a host and no user information")
+    if parsed.scheme == "https":
+        return url
+    if parsed.scheme != "http":
+        raise ValueError("Protected API URL must use HTTPS")
+
+    hostname = parsed.hostname.lower()
+    is_loopback = hostname == "localhost"
+    try:
+        is_loopback = is_loopback or ipaddress.ip_address(hostname).is_loopback
+    except ValueError:
+        pass
+    if is_loopback:
+        return url
+
+    origin = f"http://{parsed.netloc.lower()}"
+    allowed = {value.rstrip("/").lower() for value in allowed_insecure_origins}
+    if origin not in allowed:
+        raise ValueError(
+            "Plain HTTP is allowed only for loopback or an exact origin in "
+            "NFCAUTH_TERMINAL_INSECURE_HTTP_ORIGINS",
+        )
+    return url
 
 
 class BridgeClient:

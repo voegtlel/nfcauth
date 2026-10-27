@@ -8,7 +8,7 @@ provider-operated bridge. The app developer operates no central service.
 
 | Component | Operated by | Purpose |
 | --- | --- | --- |
-| Android authenticator | User | Holds one non-exportable key per provider and assurance profile |
+| Android authenticator | User | Holds one non-exportable key per provider origin, service ID and assurance profile |
 | NFC terminal | Provider or customer | Requests a bounded action and consumes the resulting token |
 | FastAPI bridge | Provider | Authenticates terminals, verifies phone assertions and issues tokens |
 | OIDC identity provider | Provider-selected | Links a phone credential to an account during online enrollment |

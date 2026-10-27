@@ -10,8 +10,8 @@
 4. The phone checks that the HTTPS privacy policy is reachable and displays the
    exact operator, fields, purposes, audiences, scopes, profiles and deletion
    instructions.
-5. After explicit consent, the phone creates a provider/profile-specific P-256
-   key in Android Keystore.
+5. After explicit consent, the phone creates a P-256 key in Android Keystore
+   scoped to the provider's canonical HTTPS origin, service ID and profile.
 6. The bridge performs Authorization Code plus PKCE against its configured OIDC
    provider and identifies the account by immutable `(issuer, sub)`.
 7. The bridge assigns the credential ID. Completion requires a one-use code and

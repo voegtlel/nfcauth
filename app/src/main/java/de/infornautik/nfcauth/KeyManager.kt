@@ -15,8 +15,8 @@ import java.security.Signature
 class KeyManager(@Suppress("UNUSED_PARAMETER") context: Context) {
     private val keyStore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
 
-    fun ensureSigningKey(serviceId: String, profile: String) {
-        val keyAlias = alias(serviceId, profile)
+    fun ensureSigningKey(serviceOrigin: String, serviceId: String, profile: String) {
+        val keyAlias = alias(serviceOrigin, serviceId, profile)
         if (keyStore.containsAlias(keyAlias)) return
         val builder = KeyGenParameterSpec.Builder(
             keyAlias,
@@ -39,33 +39,33 @@ class KeyManager(@Suppress("UNUSED_PARAMETER") context: Context) {
         }
     }
 
-    fun getPublicKeyAsString(serviceId: String, profile: String): String {
-        ensureSigningKey(serviceId, profile)
+    fun getPublicKeyAsString(serviceOrigin: String, serviceId: String, profile: String): String {
+        ensureSigningKey(serviceOrigin, serviceId, profile)
         return Base64.encodeToString(
-            keyStore.getCertificate(alias(serviceId, profile)).publicKey.encoded,
+            keyStore.getCertificate(alias(serviceOrigin, serviceId, profile)).publicKey.encoded,
             Base64.NO_WRAP,
         )
     }
 
-    fun signatureForAuthentication(serviceId: String, profile: String): Signature {
-        ensureSigningKey(serviceId, profile)
-        val privateKey = keyStore.getKey(alias(serviceId, profile), null) as PrivateKey
+    fun signatureForAuthentication(serviceOrigin: String, serviceId: String, profile: String): Signature {
+        ensureSigningKey(serviceOrigin, serviceId, profile)
+        val privateKey = keyStore.getKey(alias(serviceOrigin, serviceId, profile), null) as PrivateKey
         return Signature.getInstance("SHA256withECDSA").apply { initSign(privateKey) }
     }
 
-    fun sign(serviceId: String, profile: String, data: ByteArray): String {
-        val signature = signatureForAuthentication(serviceId, profile)
+    fun sign(serviceOrigin: String, serviceId: String, profile: String, data: ByteArray): String {
+        val signature = signatureForAuthentication(serviceOrigin, serviceId, profile)
         signature.update(data)
         return Base64.encodeToString(signature.sign(), Base64.NO_WRAP)
     }
 
-    fun deleteServiceCredentials(serviceId: String, profile: String) {
-        val keyAlias = alias(serviceId, profile)
+    fun deleteServiceCredentials(serviceOrigin: String, serviceId: String, profile: String) {
+        val keyAlias = alias(serviceOrigin, serviceId, profile)
         if (keyStore.containsAlias(keyAlias)) keyStore.deleteEntry(keyAlias)
     }
 
-    private fun alias(serviceId: String, profile: String) =
-        "NFCAuth-v4-" + profile + "-" + stable(serviceId)
+    private fun alias(serviceOrigin: String, serviceId: String, profile: String) =
+        "NFCAuth-v4-" + profile + "-" + stable(serviceOrigin + "\u0000" + serviceId)
 
     private fun stable(value: String) = MessageDigest.getInstance("SHA-256")
         .digest(value.toByteArray(StandardCharsets.UTF_8))

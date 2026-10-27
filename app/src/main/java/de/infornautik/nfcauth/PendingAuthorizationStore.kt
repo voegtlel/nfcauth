@@ -5,6 +5,7 @@ import org.json.JSONObject
 data class PendingAuthorization(
     val request: JSONObject,
     val requestHash: String,
+    val serviceOrigin: String,
     val serviceId: String,
     val terminalId: String,
     val credentialId: String,

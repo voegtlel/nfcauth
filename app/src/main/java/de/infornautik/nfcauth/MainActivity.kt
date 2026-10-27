@@ -206,8 +206,16 @@ class MainActivity : AppCompatActivity() {
 
     private fun deleteLocalRegistration(service: ReaderInfo) {
         try {
-            keyManager.deleteServiceCredentials(service.serviceId, service.authenticationProfile)
-            authDatabase.deleteReader(service.serviceId, service.authenticationProfile)
+            keyManager.deleteServiceCredentials(
+                service.serviceOrigin,
+                service.serviceId,
+                service.authenticationProfile,
+            )
+            authDatabase.deleteReader(
+                service.serviceOrigin,
+                service.serviceId,
+                service.authenticationProfile,
+            )
             loadReaders()
             Toast.makeText(
                 this,

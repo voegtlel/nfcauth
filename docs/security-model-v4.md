@@ -9,8 +9,8 @@
 - Phone assertions bind the provider request hash and cannot be widened by the
   terminal.
 - Transactions are consumed once before token issuance.
-- Per-provider and per-profile keys prevent normal cross-service correlation
-  and biometric downgrade.
+- Keys are namespaced by canonical provider origin, service ID and profile to
+  prevent cross-provider correlation, identifier collisions and biometric downgrade.
 - Terminal policy independently caps audiences, scopes and assurance.
 - A stolen callback completion code cannot enroll without the phone key.
 

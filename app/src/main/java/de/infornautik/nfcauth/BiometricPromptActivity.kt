@@ -15,7 +15,11 @@ class BiometricPromptActivity : AppCompatActivity() {
         val pending = PendingAuthorizationStore.get() ?: return finish()
         val keyManager = KeyManager(this)
         val signature = try {
-            keyManager.signatureForAuthentication(pending.serviceId, ServiceManifestParser.PROFILE_BIOMETRIC)
+            keyManager.signatureForAuthentication(
+                pending.serviceOrigin,
+                pending.serviceId,
+                ServiceManifestParser.PROFILE_BIOMETRIC,
+            )
         } catch (_: Exception) {
             PendingAuthorizationStore.cancel()
             return finish()
