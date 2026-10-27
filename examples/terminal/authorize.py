@@ -1,18 +1,16 @@
-"""Minimal terminal integration; replace Pn532Transport with your reader SDK."""
+"""Hardware-neutral terminal integration using a caller-supplied NFC transport."""
 
 from __future__ import annotations
 
-import asyncio
 import os
-
-from pn532_transport import Pn532Transport
 
 from nfc_authenticator.terminal import BridgeClient, TerminalController
 from nfc_authenticator.terminal_apdu import ApduPhoneChannel
+from nfc_authenticator.terminal_transport import NfcTransport
 
 
-async def main() -> None:
-    transport = Pn532Transport()  # Any object implementing NfcTransport works.
+async def authorize(transport: NfcTransport) -> None:
+    """Authorize with any PC/SC, USB, serial, vendor-SDK, or custom adapter."""
     bridge = BridgeClient(
         os.environ["NFCAUTH_TERMINAL_BRIDGE_URL"],
         os.environ["NFCAUTH_TERMINAL_ID"],
@@ -42,7 +40,3 @@ async def call_protected_api(access_token: str) -> None:
             headers={"Authorization": f"Bearer {access_token}"},
         )
         response.raise_for_status()
-
-
-if __name__ == "__main__":
-    asyncio.run(main())

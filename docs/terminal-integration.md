@@ -23,11 +23,13 @@ class MyTransport:
 Pass it to `ApduPhoneChannel`. That class owns AID selection, fragmentation,
 GET RESPONSE handling, encrypted-session setup and the one/two-tap state
 machine. Applications that already have an APDU framework can implement
-`PhoneChannel` directly.
+`PhoneChannel` directly. `examples/terminal/authorize.py` is deliberately
+hardware-neutral: call its `authorize(transport)` function with your adapter.
 
-The optional PN532 example is under `examples/terminal`. Install its hardware
-dependencies explicitly with `pip install 'nfc-authenticator[pn532]'`. They are
-never installed by the base package.
+The optional PN532 launcher is `examples/terminal/authorize_pn532.py`. Install
+its hardware dependencies explicitly with
+`pip install 'nfc-authenticator[pn532]'`. They are never installed by the base
+package.
 
 ## Provision a terminal
 
