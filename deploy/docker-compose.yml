@@ -1,0 +1,75 @@
+services:
+  bridge:
+    build:
+      context: ../python
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,noexec,nosuid
+    environment:
+      NFCAUTH_BRIDGE_SERVICE_ID: ${NFCAUTH_SERVICE_ID}
+      NFCAUTH_BRIDGE_SERVICE_ORIGIN: ${NFCAUTH_SERVICE_ORIGIN}
+      NFCAUTH_BRIDGE_MANIFEST_PATH: /run/config/provider-manifest.json
+      NFCAUTH_BRIDGE_REQUEST_SIGNING_KEY_PATH: /run/secrets/provider-signing-key.pem
+      NFCAUTH_BRIDGE_CERTIFICATE_CHAIN_PATH: /run/config/provider-certificate-chain.pem
+      NFCAUTH_BRIDGE_TOKEN_SIGNING_KEY_PATH: /run/secrets/token-signing-key.pem
+      NFCAUTH_BRIDGE_TERMINAL_REGISTRY_PATH: /run/config/terminals.json
+      NFCAUTH_BRIDGE_DATABASE_URL: postgresql+asyncpg://nfcauth:${POSTGRES_PASSWORD}@postgres/nfcauth
+      NFCAUTH_BRIDGE_OIDC_ISSUER: ${OIDC_ISSUER}
+      NFCAUTH_BRIDGE_OIDC_AUTHORIZATION_ENDPOINT: ${OIDC_AUTHORIZATION_ENDPOINT}
+      NFCAUTH_BRIDGE_OIDC_TOKEN_ENDPOINT: ${OIDC_TOKEN_ENDPOINT}
+      NFCAUTH_BRIDGE_OIDC_JWKS_URI: ${OIDC_JWKS_URI}
+      NFCAUTH_BRIDGE_OIDC_CLIENT_ID: ${OIDC_CLIENT_ID}
+      NFCAUTH_BRIDGE_OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET}
+      NFCAUTH_BRIDGE_OIDC_REDIRECT_URI: ${NFCAUTH_SERVICE_ORIGIN}/v1/oidc/callback
+      NFCAUTH_BRIDGE_TOKEN_EXCHANGE_ENDPOINT: ${TOKEN_EXCHANGE_ENDPOINT:-}
+      NFCAUTH_BRIDGE_TOKEN_EXCHANGE_CLIENT_ID: ${TOKEN_EXCHANGE_CLIENT_ID:-}
+      NFCAUTH_BRIDGE_TOKEN_EXCHANGE_CLIENT_SECRET: ${TOKEN_EXCHANGE_CLIENT_SECRET:-}
+    volumes:
+      - ./config:/run/config:ro
+      - ./secrets:/run/secrets:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [backend]
+
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: nfcauth
+      POSTGRES_USER: nfcauth
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - bridge-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nfcauth -d nfcauth"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [backend]
+
+  caddy:
+    image: caddy:2.10-alpine
+    restart: unless-stopped
+    ports:
+      - "443:443"
+    environment:
+      NFCAUTH_PUBLIC_HOSTNAME: ${NFCAUTH_PUBLIC_HOSTNAME}
+      NFCAUTH_TERMINAL_HOSTNAME: ${NFCAUTH_TERMINAL_HOSTNAME}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./pki:/etc/nfcauth/pki:ro
+      - ./config/provider-certificate-chain.pem:/etc/nfcauth/provider-certificate-chain.pem:ro
+      - ./secrets/provider-signing-key.pem:/etc/nfcauth/provider-signing-key.pem:ro
+      - caddy-data:/data
+    depends_on: [bridge]
+    networks: [backend]
+
+networks:
+  backend:
+    internal: true
+
+volumes:
+  bridge-db:
+  caddy-data:

@@ -27,19 +27,26 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        python -m pip install build pytest mypy
-        python -m pip install .
+        python -m pip install build mypy
+        python -m pip install '.[dev]'
 
-    - name: Check adapter type annotations
+    - name: Check protocol and transport type annotations
       run: >-
         python -m mypy --strict --follow-imports=silent
-        nfc_authenticator/backend.py nfc_authenticator/storage.py nfc_authenticator/discovery.py
+        nfc_authenticator/protocol_v4.py nfc_authenticator/terminal_transport.py
 
-    - name: Test protocol and reference backend
+    - name: Lint
+      run: python -m ruff check . ../examples/terminal
+
+    - name: Test protocol, bridge, registration, and token issuance
       run: python -m pytest -q
 
     - name: Build package
       run: python -m build
+
+    - name: Build bridge container
+      working-directory: ${{ github.workspace }}
+      run: docker build --file python/Dockerfile python
 
     - name: Upload Python package
       uses: actions/upload-artifact@v7

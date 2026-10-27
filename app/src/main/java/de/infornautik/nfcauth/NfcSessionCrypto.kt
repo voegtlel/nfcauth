@@ -66,7 +66,7 @@ class NfcSessionCrypto private constructor(
         require(authenticated) { "Service identity is not authenticated" }
         val mac = Mac.getInstance("HmacSHA256")
         mac.init(SecretKeySpec(bindingKey, "HmacSHA256"))
-        return mac.doFinal("nfcauth-v3-credential-discovery-binding".toByteArray())
+        return mac.doFinal("nfcauth-v4-session-binding".toByteArray())
             .joinToString("") { "%02x".format(it.toInt() and 0xff) }
     }
 
@@ -114,8 +114,8 @@ class NfcSessionCrypto private constructor(
     private fun deriveSubkeys() {
         transportKey.fill(0)
         bindingKey.fill(0)
-        transportKey = hkdf(rootKey, sessionId, "nfcauth-v3-transport".toByteArray())
-        bindingKey = hkdf(rootKey, sessionId, "nfcauth-v3-binding".toByteArray())
+        transportKey = hkdf(rootKey, sessionId, "nfcauth-v4-transport".toByteArray())
+        bindingKey = hkdf(rootKey, sessionId, "nfcauth-v4-binding".toByteArray())
     }
 
     private fun aad(direction: Byte, purpose: String, sequence: ByteArray): ByteArray {
@@ -133,13 +133,13 @@ class NfcSessionCrypto private constructor(
     }
 
     companion object {
-        const val VERSION = 3
+        const val VERSION = 4
         const val SESSION_ID_LENGTH = 16
         const val PUBLIC_KEY_LENGTH = 65
         const val PHONE_CHALLENGE_LENGTH = 32
         const val PURPOSE_SESSION_AUTHENTICATION = "session-authentication"
-        private val PROVISIONAL_INFO = "nfcauth-v3-provisional-session".toByteArray()
-        private val AUTHENTICATED_INFO = "nfcauth-v3-authenticated-session".toByteArray()
+        private val PROVISIONAL_INFO = "nfcauth-v4-provisional-session".toByteArray()
+        private val AUTHENTICATED_INFO = "nfcauth-v4-authenticated-session".toByteArray()
 
         fun accept(request: ByteArray): AcceptedSession {
             require(request.size == 82 && request[0].toInt() and 0xff == VERSION)

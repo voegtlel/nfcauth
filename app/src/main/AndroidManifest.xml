@@ -33,7 +33,15 @@
         <activity
             android:name=".RegistrationActivity"
             android:theme="@style/Theme.Dialog"
-            android:exported="false" />
+            android:launchMode="singleTask"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="nfcauth" android:host="registration-complete" />
+            </intent-filter>
+        </activity>
 
         <activity
             android:name=".AppPrivacyPolicyActivity"

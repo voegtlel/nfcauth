@@ -1,184 +1,98 @@
 # NFC Authenticator
 
-NFC Authenticator is an Android host-card-emulation app and a Python reference
-reader/backend for privacy-aware, service-specific authentication. The app has
-no developer-operated authentication backend, analytics, advertising, or
-tracking.
+NFC Authenticator is an Android HCE authenticator and a provider-operated Python
+bridge for privacy-aware, service-specific authorization. The phone can be
+offline during NFC use; the terminal is online and receives a scoped access
+token valid for at most ten minutes.
 
-This branch implements protocol version 3. It is intentionally incompatible
-with earlier prerelease protocols and uses a new Android and Python database.
+The app developer operates no authentication backend, analytics, advertising,
+or tracking. Each provider independently operates its bridge and controls the
+subsequent processing of data transferred to it.
 
-## Protocol v3 in brief
+## Protocol v4
 
-- A service allocates an opaque `credential_id` and may associate it with an
-  existing account. The phone does not create an account identifier.
-- The reader selects either the possession AID or biometric AID. Credentials
-  and Android Keystore signing keys are unique to `(service, profile)`.
-- Every presentation starts with ephemeral P-256 ECDH. Before any application
-  data is accepted, the service signs the session transcript with a Web-PKI
-  certificate valid for its HTTPS origin.
-- The phone validates the certificate chain, DNS SAN, validity, digital
-  signature key usage, `serverAuth` EKU, and transcript signature offline.
-  It then rekeys the provisional session with the transcript hash.
-- Registration data is additionally encrypted directly to the service's
-  long-term P-256 encryption key. All later credential messages are protected
-  with a credential key known only to that phone and service.
-- After a successful proof, both sides derive the next credential key with
-  HKDF. A commit encrypted under the new key and an encrypted ACK prevent
-  either side from discarding the last common epoch prematurely.
-- Discovery advertises the phone's current/fallback epochs. This recovers from
-  an interrupted commit without persisting authentication attempts.
+- Registration starts from an HTTPS provider URL and uses a signed manifest,
+  explicit data disclosure, Authorization Code plus PKCE, and an immutable OIDC
+  `(issuer, sub)` account mapping.
+- The provider assigns the opaque credential ID. The phone creates a separate,
+  non-exportable P-256 signing key for every provider and assurance profile.
+- Every NFC tap uses fresh P-256 ECDH, HKDF-SHA-256 and AES-256-GCM.
+- The provider bridge signs the exact terminal, action, audience, scopes,
+  assurance requirement, expiry, phone challenge and both ephemeral NFC keys
+  with its Web-PKI `serverAuth` certificate.
+- Possession authorization can complete in one tap. Biometric authorization is
+  intentionally two-tap: receive the request, move the phone away to approve,
+  then tap the same terminal again to deliver the in-memory assertion.
+- The bridge consumes each transaction once and issues or exchanges a token
+  with a maximum lifetime of 600 seconds. No refresh token is issued.
+- Authentication attempts, assertions, NFC session keys and terminal tokens are
+  never persisted.
 
-The detailed wire protocol is in
-[`docs/credential-discovery.md`](docs/credential-discovery.md). The security
-analysis and known limitations are in
-[`docs/protocol-security-analysis.md`](docs/protocol-security-analysis.md).
+Protocol v4 is deliberately incompatible with earlier prerelease protocols. It
+removes credential-key epochs, discovery, `KEY_COMMIT`, `KEY_COMMIT_ACK`, and
+persistent symmetric credential keys.
 
-## Consent and local data
+## Implementations
 
-Before registration, the app shows the recipient service and operator, the
-certificate-verified domain, exact requested fields and purposes, policy and
-deletion links, authentication profile, and confirmation that data is
-encrypted directly to the service. **Agree and register** authorizes only that
-specific transfer.
+The repository contains:
 
-The app asks again when the operator, requested fields, purposes, encryption
-identity, profile, or materially changed privacy notice differs. Routine
-authentication within the approved scope does not prompt.
+- the Android authenticator under `app/`;
+- the asynchronous FastAPI bridge under
+  `python/nfc_authenticator/bridge/`;
+- reader-independent terminal orchestration in
+  `python/nfc_authenticator/terminal.py`;
+- APDU framing over a caller-supplied `NfcTransport` in
+  `python/nfc_authenticator/terminal_apdu.py`;
+- Docker Compose deployment material under `deploy/`; and
+- an optional PN532 adapter under `examples/terminal/`.
 
-The Android app persists:
+PN532 and Raspberry Pi packages are not base dependencies. Applications may
+provide PC/SC, USB, serial, vendor-SDK, or entirely custom transports.
 
-- service disclosure and approval metadata;
-- the service-issued opaque credential reference;
-- one profile-specific private signing key in Android Keystore; and
-- active/fallback credential-key epochs in encrypted preferences.
+## Documentation
 
-Authentication challenges and attempts are transient. The Python
-`SQLiteStore.attempts` dictionary and Android HCE service keep them only in
-memory. Durable overlap is limited to credential key epochs needed for
-commit/ACK recovery.
-
-Deleting a local registration removes its database record, profile-specific
-signing key, and credential keys. It does not delete the service's copy; use
-the displayed service deletion instructions for that.
-
-## Service session authentication
-
-The reader can call a service signing API or use a local certificate key for
-development. The signing API receives typed transcript fields, not arbitrary
-bytes. Its certificate must:
-
-- chain to a trust anchor accepted by Android;
-- contain a DNS SAN matching `service_origin`;
-- permit digital signatures; and
-- contain the TLS `serverAuth` extended key usage.
-
-The reference HTTP client waits 2 seconds for the signing API. The phone
-accepts the initial certificate proof for 5 seconds after issuing its
-challenge. Readers should complete ordinary API calls well within this bound
-and must not hold a single APDU open during the network call.
-
-Public CA validation proves control of the service domain, not that an operator
-name or policy is legally correct. Revocation freshness is unavailable during
-offline NFC use; certificate expiry is still checked.
-
-## Python interface
-
-`ReferenceBackend` is transport-independent. Credentials persist in
-`registered_credentials`; pending discovery/proof objects live only in the
-process-local `SQLiteStore.attempts` dictionary.
-
-```python
-from nfc_authenticator.backend import ReferenceBackend
-from nfc_authenticator.service_manifest import (
-    FIELD_AUTHENTICATION_PUBLIC_KEY,
-    PROFILE_BIOMETRIC,
-    ServiceIdentity,
-    ServicePrivacyConfig,
-)
-from nfc_authenticator.storage import SQLiteStore
-
-privacy = ServicePrivacyConfig(
-    service_origin="https://login.example.com",
-    service_id="example",
-    service_name="Example",
-    operator_name="Example GmbH",
-    privacy_policy_url="https://login.example.com/privacy",
-    privacy_notice_version="3",
-    requested_fields=(FIELD_AUTHENTICATION_PUBLIC_KEY,),
-    purposes={FIELD_AUTHENTICATION_PUBLIC_KEY: "Verify login"},
-    data_deletion_url_or_contact="https://login.example.com/delete",
-    authentication_profile=PROFILE_BIOMETRIC,
-)
-identity = ServiceIdentity.load_or_create("service-identity-v3.json")
-with SQLiteStore("auth-v3.db") as store:
-    backend = ReferenceBackend(identity, privacy, store, reader_id="reader-1")
-    discovery = backend.start_discovery(transport_binding)
-    challenge = backend.create_challenge(discovery["id"], phone_selection)
-    result = backend.complete(challenge["login_id"], encrypted_proof)
-    backend.confirm_rotation(result, encrypted_commit_ack)
-```
-
-The service should allocate `credential_id` before registration and map it to
-its account internally. Do not encode an email, username, or database primary
-key into it.
-
-## Run the reference reader
-
-Requirements are Python 3.9+, `cryptography`, and the optional PN532/Raspberry
-Pi packages:
-
-```bash
-cd python
-uv sync --extra reader
-
-# Development: local certificate key and chain.
-uv run --extra reader nfc-reader-auth register \
-  --credential-id "$(openssl rand -hex 16)" \
-  --auth-profile biometric \
-  --service-origin https://login.example.com \
-  --certificate-key server-key.pem \
-  --certificate-chain fullchain.pem
-
-# Production-style: scoped API credential is read from NFC_AUTH_SIGNING_API_KEY.
-uv run --extra reader nfc-reader-auth auth \
-  --auth-profile biometric \
-  --service-origin https://login.example.com \
-  --signing-api-url https://login.example.com/nfcauth/session-signature
-```
-
-Prefer a unique, scoped, rotatable reader credential or mTLS for the
-reader-to-service call. The signing endpoint must construct and canonicalize
-the protocol transcript itself; it must not become an arbitrary signing oracle.
+- [Architecture](docs/architecture-v4.md)
+- [Protocol and two-tap biometric flow](docs/protocol-v4.md)
+- [Terminal integration tutorial](docs/terminal-integration.md)
+- [Bridge deployment tutorial](docs/bridge-deployment.md)
+- [Optional Authentik integration](docs/authentik-integration.md)
+- [Security model and residual risks](docs/security-model-v4.md)
+- [App privacy policy](docs/privacy-policy.html)
 
 ## Build and test
 
-Android requirements: JDK 17, Android SDK 36, Gradle 8.11.1.
+Android requires JDK 17, Android SDK 36 and Gradle 8.11.1:
 
-```bash
+```shell
 gradle :app:testDebugUnitTest
 gradle :app:lint
 gradle :app:bundleRelease
-
-cd python
-uv run --with pytest pytest -q
-uv run --extra dev ruff check .
 ```
 
-The app/package release is 2.0.0; the wire protocol version is 3.
+Python requires 3.11 or newer:
 
-## Privacy policy
+```shell
+cd python
+uv sync --extra dev
+uv run --extra dev ruff check .
+uv run --extra dev pytest -q
+```
 
-The app policy is [`docs/privacy-policy.html`](docs/privacy-policy.html) and is
-also available inside the app. With GitHub Pages enabled, use
-<https://voegtlel.github.io/nfcauth/privacy-policy.html> in Play Console.
+Run the bridge through Docker Compose as described in
+[the deployment guide](docs/bridge-deployment.md), or configure the
+`NFCAUTH_BRIDGE_*` environment variables and run `nfc-auth-bridge`.
 
-## Logging
+## Privacy and logging
 
-Logs must never contain names, credential IDs, service IDs, cryptographic keys,
-certificate material, raw APDUs, plaintext/decrypted payloads, nonces, or
-signatures.
+The phone persists provider disclosure and consent metadata, a provider-assigned
+credential ID, and the Android Keystore alias. Local deletion removes those
+records and keys but does not delete the provider's copy; the app retains the
+provider's deletion URL or contact.
+
+Logs must never contain names, account or credential IDs, service IDs, keys,
+certificates, signatures, tokens, raw APDUs, nonces, plaintext, or decrypted
+objects.
 
 ## License
 
-MIT; see [`LICENSE`](LICENSE).
+MIT; see [LICENSE](LICENSE).

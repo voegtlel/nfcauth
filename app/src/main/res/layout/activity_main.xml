@@ -15,6 +15,13 @@
         android:layout_marginBottom="16dp"/>
 
     <Button
+        android:id="@+id/registerProviderButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Register with provider"
+        android:layout_marginBottom="8dp"/>
+
+    <Button
         android:id="@+id/infoButton"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"

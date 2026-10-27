@@ -37,7 +37,7 @@ class PlayStoreScreenshotTest {
 
     @Before
     fun prepareDeterministicState() {
-        context.deleteDatabase("auth.db")
+        context.deleteDatabase("auth-v4.db")
     }
 
     @Test
@@ -48,15 +48,12 @@ class PlayStoreScreenshotTest {
         }
 
         val registrationIntent = Intent(context, RegistrationActivity::class.java).apply {
-            putExtra(RegistrationActivity.EXTRA_MANIFEST, exampleManifest())
-            putExtra(RegistrationActivity.EXTRA_OFFER, exampleOffer())
-            putExtra(RegistrationActivity.EXTRA_CERTIFICATE_FINGERPRINT, EXAMPLE_SIGNING_FINGERPRINT)
-            putExtra(RegistrationActivity.EXTRA_VERIFIED_DOMAIN, "voegtlel.github.io")
+            putExtra(RegistrationActivity.EXTRA_PREVIEW_MANIFEST, exampleManifest())
         }
         ActivityScenario.launch<RegistrationActivity>(registrationIntent).use {
             waitForRegistrationPolicyCheck()
             capture("02-registration-disclosure")
-            onView(withId(R.id.registrationScrollView)).perform(swipeUp())
+            onView(withId(android.R.id.message)).perform(swipeUp())
             capture("03-registration-confirmation")
         }
 
@@ -81,7 +78,7 @@ class PlayStoreScreenshotTest {
         var lastFailure: Throwable? = null
         while (SystemClock.elapsedRealtime() < deadline) {
             try {
-                onView(withId(R.id.confirmButton)).check(matches(isEnabled()))
+                onView(withText("Agree and register")).check(matches(isEnabled()))
                 return
             } catch (failure: Throwable) {
                 lastFailure = failure
@@ -190,6 +187,8 @@ class PlayStoreScreenshotTest {
                         verifiedDomain = "voegtlel.github.io",
                         manifestHash = EXAMPLE_MANIFEST_HASH,
                         approvedAt = EXAMPLE_APPROVAL_TIME,
+                        allowedAudiences = listOf("https://api.example.com"),
+                        allowedScopes = listOf("openid", "profile"),
                     ),
                 ),
             )
@@ -211,7 +210,13 @@ class PlayStoreScreenshotTest {
             requestedFields = REQUESTED_FIELDS,
             purposes = PURPOSES,
             deletionUrlOrContact = "privacy@example.com",
-            authenticationProfile = ServiceManifestParser.PROFILE_BIOMETRIC,
+            supportedProfiles = listOf(
+                ServiceManifestParser.PROFILE_BIOMETRIC,
+                ServiceManifestParser.PROFILE_POSSESSION,
+            ),
+            allowedAudiences = listOf("https://api.example.com"),
+            allowedScopes = listOf("openid", "profile"),
+            registrationEndpoint = "https://voegtlel.github.io/v1/registrations",
             encryptionPublicKey = encryptionKeyPair.public.encoded.toBase64(),
             privacyNoticeMaterialChange = false,
         )
@@ -225,22 +230,14 @@ class PlayStoreScreenshotTest {
             put("requested_fields", JSONArray(manifest.requestedFields))
             put("purposes", JSONObject(manifest.purposes))
             put("data_deletion_url_or_contact", manifest.deletionUrlOrContact)
-            put("authentication_profile", manifest.authenticationProfile)
+            put("protocol_version", ServiceManifestParser.PROTOCOL_VERSION)
+            put("supported_assurance_profiles", JSONArray(manifest.supportedProfiles))
+            put("allowed_audiences", JSONArray(manifest.allowedAudiences))
+            put("allowed_scopes", JSONArray(manifest.allowedScopes))
+            put("registration_endpoint", manifest.registrationEndpoint)
             put("encryption_public_key", manifest.encryptionPublicKey)
             put("privacy_notice_material_change", manifest.privacyNoticeMaterialChange)
         }.toString()
-    }
-
-    private fun exampleOffer(): String {
-        val manifest = ServiceManifestParser.parse(JSONObject(exampleManifest()))
-        return JSONObject()
-            .put("protocol_version", 3)
-            .put("service_id", manifest.serviceId)
-            .put("credential_id", "service-specific-user")
-            .put("authentication_profile", manifest.authenticationProfile)
-            .put("manifest_hash", ServiceManifestParser.hash(manifest))
-            .put("registration_nonce", "01".repeat(32))
-            .toString()
     }
 
     private fun ByteArray.toBase64(): String = Base64.encodeToString(this, Base64.NO_WRAP)
@@ -259,11 +256,12 @@ class PlayStoreScreenshotTest {
         private const val EXAMPLE_MANIFEST_HASH =
             "951dc64f2a4cf988a417681d5c23a6fb7979922bd95861711069e8be61455fae"
         private val REQUESTED_FIELDS = listOf(
-            ServiceManifestParser.FIELD_ALIAS,
+            ServiceManifestParser.FIELD_PROVIDER_ASSIGNED_CREDENTIAL_ID,
             ServiceManifestParser.FIELD_AUTHENTICATION_PUBLIC_KEY,
         )
         private val PURPOSES = linkedMapOf(
-            ServiceManifestParser.FIELD_ALIAS to "Display a recognizable name in your account.",
+            ServiceManifestParser.FIELD_PROVIDER_ASSIGNED_CREDENTIAL_ID to
+                "Associate this phone credential with your provider account.",
             ServiceManifestParser.FIELD_AUTHENTICATION_PUBLIC_KEY to
                 "Verify future NFC authentication signatures.",
         )

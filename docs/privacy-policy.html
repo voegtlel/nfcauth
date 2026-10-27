@@ -25,14 +25,14 @@
       registration or authentication data. The app contains no advertising,
       analytics, or tracking SDK. It stores credentials and independent service
       metadata locally on the device and transfers data only when the user
-      deliberately presents the phone to an NFC service.</p>
+      deliberately registers with a provider or presents the phone to an NFC terminal.</p>
 
     <h2>Data stored locally</h2>
     <p>For each approved service, the app stores the service identity and
       verification status, approved data fields and purposes, privacy-policy URL
       and notice version, deletion instructions, cryptographic key fingerprints,
-      approval time, a service-issued opaque credential reference, an optional
-      alias, and service- and profile-specific cryptographic credentials.
+      approval time, a service-issued opaque credential reference, and
+      service- and profile-specific cryptographic credentials.
       Credential references and signing keys are never reused across services.</p>
 
     <h2>Transfers to independent services</h2>
@@ -60,13 +60,14 @@
     <p>Local registrations remain until the user deletes them in the app, clears
       app storage, or uninstalls the app. Android backup is disabled for app
       data. Deleting a registration removes its local record, service-specific
-      signing key, and encryption secret. Local deletion does not delete a
+      signing key. Local deletion does not delete a
       recipient service’s copy; users should follow the service’s displayed
       deletion instructions.</p>
 
     <h2>Security and logs</h2>
-    <p>Private signing keys are held by Android Keystore. Stored service secrets
-      are encrypted locally. The app accepts only protocol version 3 encrypted traffic.
+    <p>Private signing keys are held by Android Keystore. Authentication attempts,
+      NFC session keys, assertions, and access tokens are kept only in memory.
+      The app accepts only protocol version 4 encrypted traffic.
       Logs do not contain names, user or service identifiers, keys, plaintext
       payloads, or decrypted registration/authentication data.</p>
 

@@ -8,7 +8,7 @@ import android.database.sqlite.SQLiteOpenHelper
 import org.json.JSONArray
 import org.json.JSONObject
 
-class AuthDatabase(context: Context) : SQLiteOpenHelper(context, "auth-v3.db", null, 1) {
+class AuthDatabase(context: Context) : SQLiteOpenHelper(context, "auth-v4.db", null, 1) {
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL(
             """
@@ -30,6 +30,8 @@ class AuthDatabase(context: Context) : SQLiteOpenHelper(context, "auth-v3.db", n
               verified_domain TEXT NOT NULL,
               manifest_hash TEXT NOT NULL,
               approved_at INTEGER NOT NULL,
+              allowed_audiences TEXT NOT NULL,
+              allowed_scopes TEXT NOT NULL,
               PRIMARY KEY(service_id, authentication_profile)
             )
             """.trimIndent(),
@@ -37,7 +39,7 @@ class AuthDatabase(context: Context) : SQLiteOpenHelper(context, "auth-v3.db", n
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) =
-        error("Protocol-v3 database has no legacy migration path")
+        error("Protocol-v4 database has no legacy migration path")
 
     fun getAllReaders(): List<ReaderInfo> {
         val readers = mutableListOf<ReaderInfo>()
@@ -72,6 +74,8 @@ class AuthDatabase(context: Context) : SQLiteOpenHelper(context, "auth-v3.db", n
             put("verified_domain", reader.verifiedDomain)
             put("manifest_hash", reader.manifestHash)
             put("approved_at", reader.approvedAt)
+            put("allowed_audiences", JSONArray(reader.allowedAudiences).toString())
+            put("allowed_scopes", JSONArray(reader.allowedScopes).toString())
         }
         return writableDatabase.insertWithOnConflict(
             "services", null, values, SQLiteDatabase.CONFLICT_REPLACE,
@@ -98,6 +102,12 @@ class AuthDatabase(context: Context) : SQLiteOpenHelper(context, "auth-v3.db", n
             string("deletion_contact"), string("encryption_fingerprint"),
             string("certificate_fingerprint"), string("verified_domain"),
             string("manifest_hash"), getLong(getColumnIndexOrThrow("approved_at")),
+            JSONArray(string("allowed_audiences")).let { values ->
+                (0 until values.length()).map(values::getString)
+            },
+            JSONArray(string("allowed_scopes")).let { values ->
+                (0 until values.length()).map(values::getString)
+            },
         )
     } catch (_: Exception) {
         null

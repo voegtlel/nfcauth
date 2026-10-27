@@ -1,4 +1,4 @@
-"""Certificate-authenticated NFC transport encryption for protocol version 3."""
+"""Certificate-authenticated NFC transport encryption for protocol version 4."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
-PROTOCOL_VERSION = 3
+PROTOCOL_VERSION = 4
 SESSION_ID_LENGTH = 16
 PHONE_CHALLENGE_LENGTH = 32
 PUBLIC_KEY_LENGTH = 65
@@ -22,10 +22,10 @@ MAX_SEQUENCE = (1 << 64) - 1
 DIRECTION_READER_TO_PHONE = 0
 DIRECTION_PHONE_TO_READER = 1
 PURPOSE_SESSION_AUTHENTICATION = "session-authentication"
-HKDF_PROVISIONAL_INFO = b"nfcauth-v3-provisional-session"
-HKDF_AUTHENTICATED_INFO = b"nfcauth-v3-authenticated-session"
-HKDF_TRANSPORT_INFO = b"nfcauth-v3-transport"
-HKDF_BINDING_INFO = b"nfcauth-v3-binding"
+HKDF_PROVISIONAL_INFO = b"nfcauth-v4-provisional-session"
+HKDF_AUTHENTICATED_INFO = b"nfcauth-v4-authenticated-session"
+HKDF_TRANSPORT_INFO = b"nfcauth-v4-transport"
+HKDF_BINDING_INFO = b"nfcauth-v4-binding"
 
 
 class ProtocolCryptoError(ValueError):
@@ -93,7 +93,7 @@ class NfcSession:
             raise ProtocolCryptoError("NFC session identity is not authenticated")
         return hmac.new(
             self._binding_key,
-            b"nfcauth-v3-credential-discovery-binding",
+            b"nfcauth-v4-session-binding",
             "sha256",
         ).hexdigest()
 

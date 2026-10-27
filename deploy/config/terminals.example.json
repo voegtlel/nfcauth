@@ -1,0 +1,11 @@
+{
+  "terminals": [
+    {
+      "terminal_id": "front-desk-1",
+      "certificate_fingerprint": "REPLACE_WITH_SHA256_FINGERPRINT",
+      "allowed_audiences": ["inventory-api"],
+      "allowed_scopes": ["inventory.read"],
+      "allowed_assurance": ["biometric"]
+    }
+  ]
+}

@@ -8,6 +8,7 @@ import android.text.Spanned
 import android.text.method.LinkMovementMethod
 import android.text.style.URLSpan
 import android.widget.Button
+import android.widget.EditText
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
@@ -48,6 +49,7 @@ class MainActivity : AppCompatActivity() {
         findViewById<Button>(R.id.infoButton).setOnClickListener {
             startActivity(Intent(this, AppPrivacyPolicyActivity::class.java))
         }
+        findViewById<Button>(R.id.registerProviderButton).setOnClickListener { showProviderEntry() }
         loadReaders()
     }
 
@@ -89,6 +91,29 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         if (::authDatabase.isInitialized) loadReaders()
+        val pending = PendingAuthorizationStore.get()
+        if (pending != null && pending.assertion == null) {
+            startActivity(Intent(this, BiometricPromptActivity::class.java))
+        }
+    }
+
+    private fun showProviderEntry() {
+        val input = EditText(this).apply {
+            hint = "https://auth.example.com"
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_URI
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Register with provider")
+            .setMessage("Enter the provider's HTTPS origin. You will review its identity, requested data, and privacy information before anything is registered.")
+            .setView(input)
+            .setNegativeButton(R.string.dialog_button_cancel, null)
+            .setPositiveButton("Continue") { _, _ ->
+                startActivity(
+                    Intent(this, RegistrationActivity::class.java)
+                        .putExtra(RegistrationActivity.EXTRA_ORIGIN, input.text.toString()),
+                )
+            }
+            .show()
     }
 
     override fun onDestroy() {
