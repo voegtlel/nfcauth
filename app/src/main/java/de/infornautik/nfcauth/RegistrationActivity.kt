@@ -2,6 +2,7 @@ package de.infornautik.nfcauth
 
 import android.app.AlertDialog
 import android.content.Intent
+import android.content.pm.ApplicationInfo
 import android.net.Uri
 import android.os.Bundle
 import android.util.Base64
@@ -42,7 +43,7 @@ class RegistrationActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         keys = KeyManager(this)
         database = AuthDatabase(this)
-        if (BuildConfig.DEBUG) {
+        if ((applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0) {
             intent.getStringExtra(EXTRA_PREVIEW_MANIFEST)?.let {
                 showPreviewManifest(it)
                 return
