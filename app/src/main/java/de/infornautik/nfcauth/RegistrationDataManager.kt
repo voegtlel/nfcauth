@@ -6,116 +6,112 @@ import org.json.JSONObject
 import java.io.File
 
 class RegistrationDataManager(context: Context) {
-    companion object {
-        private const val PENDING_REGISTRATION_FILE = "pending_registration_v2.json"
-    }
-
-    private val pendingFile = File(context.filesDir, PENDING_REGISTRATION_FILE)
+    private val pendingFile = File(context.filesDir, "pending-registration-v3.json")
 
     fun setPendingRegistrationData(data: JSONObject?) {
-        if (data == null) {
-            pendingFile.delete()
-            return
-        }
-        pendingFile.writeText(data.toString(), Charsets.UTF_8)
+        if (data == null) pendingFile.delete() else pendingFile.writeText(data.toString())
     }
-
-    fun hasPendingRegistrationData(): Boolean = pendingFile.isFile
-
+    fun hasPendingRegistrationData() = pendingFile.isFile
     fun getPendingRegistrationData(): JSONObject? = try {
-        if (!pendingFile.isFile) null else JSONObject(pendingFile.readText(Charsets.UTF_8))
+        if (pendingFile.isFile) JSONObject(pendingFile.readText()) else null
     } catch (_: Exception) {
         pendingFile.delete()
         null
     }
 
-    fun pendingResponseFor(serviceId: String, manifestHash: String): JSONObject? {
-        val pending = getPendingRegistrationData() ?: return null
-        if (pending.optString("service_id") != serviceId ||
-            pending.optString("manifest_hash") != manifestHash
+    fun pendingResponseFor(
+        serviceId: String,
+        profile: String,
+        credentialId: String,
+        nonce: String,
+        manifestHash: String,
+    ): JSONObject? {
+        val value = getPendingRegistrationData() ?: return null
+        return if (
+            value.optString("service_id") == serviceId &&
+            value.optString("authentication_profile") == profile &&
+            value.optString("credential_id") == credentialId &&
+            value.optString("registration_nonce") == nonce &&
+            value.optString("manifest_hash") == manifestHash
         ) {
-            return null
+            value.optJSONObject("encrypted_response")
+        } else {
+            null
         }
-        return pending.optJSONObject("encrypted_response")
     }
 
     fun createPendingRecord(
         verified: VerifiedServiceManifest,
-        userId: String,
+        credentialId: String,
+        registrationNonce: String,
         alias: String?,
         encryptedResponse: JSONObject,
         wasRegistered: Boolean,
     ): JSONObject {
         val manifest = verified.manifest
-        return JSONObject().apply {
-            put("service_id", manifest.serviceId)
-            put("manifest_hash", verified.manifestHash)
-            put("registration_nonce", manifest.registrationNonce)
-            put("was_registered", wasRegistered)
-            put("encrypted_response", encryptedResponse)
-            put(
+        return JSONObject()
+            .put("service_id", manifest.serviceId)
+            .put("authentication_profile", manifest.authenticationProfile)
+            .put("credential_id", credentialId)
+            .put("manifest_hash", verified.manifestHash)
+            .put("registration_nonce", registrationNonce)
+            .put("was_registered", wasRegistered)
+            .put("encrypted_response", encryptedResponse)
+            .put(
                 "record",
-                JSONObject().apply {
-                    put("service_name", manifest.serviceName)
-                    put("operator_name", manifest.operatorName)
-                    put("identity_verified", verified.identityVerified)
-                    put("user_id", userId)
-                    if (alias != null) put("alias", alias)
-                    put("privacy_policy_url", manifest.privacyPolicyUrl)
-                    put("privacy_notice_version", manifest.privacyNoticeVersion)
-                    put("requested_fields", JSONArray(manifest.requestedFields))
-                    put("purposes", JSONObject(manifest.purposes))
-                    put("deletion_contact", manifest.deletionUrlOrContact)
-                    put("encryption_fingerprint", verified.encryptionKeyFingerprint)
-                    put("signing_fingerprint", verified.signingKeyFingerprint)
-                    put("approved_at", System.currentTimeMillis())
-                },
+                JSONObject()
+                    .put("service_origin", manifest.serviceOrigin)
+                    .put("service_name", manifest.serviceName)
+                    .put("operator_name", manifest.operatorName)
+                    .put("alias", alias)
+                    .put("privacy_policy_url", manifest.privacyPolicyUrl)
+                    .put("privacy_notice_version", manifest.privacyNoticeVersion)
+                    .put("requested_fields", JSONArray(manifest.requestedFields))
+                    .put("purposes", JSONObject(manifest.purposes))
+                    .put("deletion_contact", manifest.deletionUrlOrContact)
+                    .put("encryption_fingerprint", verified.encryptionKeyFingerprint)
+                    .put("certificate_fingerprint", verified.certificateFingerprint)
+                    .put("verified_domain", verified.verifiedDomain)
+                    .put("approved_at", System.currentTimeMillis()),
             )
-        }
     }
 
-    fun readerInfoFromPending(pending: JSONObject): ReaderInfo? = try {
-        val serviceId = pending.getString("service_id")
-        val manifestHash = pending.getString("manifest_hash")
-        val record = pending.getJSONObject("record")
-        val fieldsArray = record.getJSONArray("requested_fields")
-        val fields = (0 until fieldsArray.length()).map(fieldsArray::getString)
-        val purposesJson = record.getJSONObject("purposes")
-        val purposes = linkedMapOf<String, String>()
-        val keys = purposesJson.keys()
-        while (keys.hasNext()) {
-            val key = keys.next()
-            purposes[key] = purposesJson.getString(key)
-        }
+    fun readerInfoFromPending(value: JSONObject): ReaderInfo? = try {
+        val record = value.getJSONObject("record")
+        val fieldsJson = record.getJSONArray("requested_fields")
+        val fields = (0 until fieldsJson.length()).map(fieldsJson::getString)
+        val purposeJson = record.getJSONObject("purposes")
+        val purposes = purposeJson.keys().asSequence().associateWith(purposeJson::getString)
         ReaderInfo(
-            serviceId = serviceId,
-            serviceName = record.getString("service_name"),
-            operatorName = record.getString("operator_name"),
-            identityVerified = record.getBoolean("identity_verified"),
-            userId = record.getString("user_id"),
-            alias = if (record.has("alias")) record.getString("alias") else null,
-            privacyPolicyUrl = record.getString("privacy_policy_url"),
-            privacyNoticeVersion = record.getString("privacy_notice_version"),
-            requestedFields = fields,
-            purposes = purposes,
-            deletionUrlOrContact = record.getString("deletion_contact"),
-            encryptionKeyFingerprint = record.getString("encryption_fingerprint"),
-            signingKeyFingerprint = record.getString("signing_fingerprint"),
-            manifestHash = manifestHash,
-            approvedAt = record.getLong("approved_at"),
+            record.getString("service_origin"),
+            value.getString("service_id"),
+            record.getString("service_name"),
+            record.getString("operator_name"),
+            value.getString("credential_id"),
+            value.getString("authentication_profile"),
+            if (record.isNull("alias")) null else record.getString("alias"),
+            record.getString("privacy_policy_url"),
+            record.getString("privacy_notice_version"),
+            fields,
+            purposes,
+            record.getString("deletion_contact"),
+            record.getString("encryption_fingerprint"),
+            record.getString("certificate_fingerprint"),
+            record.getString("verified_domain"),
+            value.getString("manifest_hash"),
+            record.getLong("approved_at"),
         )
     } catch (_: Exception) {
         null
     }
 
     fun cancelPendingRegistration(keyManager: KeyManager) {
-        val pending = getPendingRegistrationData()
-        if (pending != null) {
-            val serviceId = pending.optString("service_id")
-            if (serviceId.isNotBlank()) {
-                keyManager.discardPendingSessionKey(
-                    serviceId,
-                    deleteSigningKey = !pending.optBoolean("was_registered", false),
+        getPendingRegistrationData()?.let {
+            val serviceId = it.optString("service_id")
+            val profile = it.optString("authentication_profile")
+            if (serviceId.isNotBlank() && profile.isNotBlank()) {
+                keyManager.discardPendingRegistration(
+                    serviceId, profile, !it.optBoolean("was_registered", false),
                 )
             }
         }

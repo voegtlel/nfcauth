@@ -1,177 +1,168 @@
-# Username-free credential discovery
+# NFC Auth protocol v3
 
-Readers first identify an enrolled credential, then verify its authenticity. A
-service-specific ID is a lookup hint, never proof of identity. No global username,
-phone UID, account roles or private signing key is disclosed by discovery.
+All integers are unsigned big-endian. JSON is UTF-8. AES-GCM envelopes include
+the protocol version, service/credential/profile identity, key epoch, 12-byte
+random IV, and ciphertext/tag. Every application message is also inside the
+authenticated NFC transport.
 
-## Wire flow
+## Profiles and AIDs
 
-1. Select the nfcauth AID and establish the existing protocol-v2 ephemeral NFC
-   session. Both peers compute the same `transport_binding`:
-   `hex(HMAC-SHA256(session_key, ASCII("nfcauth-v2-credential-discovery-binding")))`.
-2. The service signs a discovery request for that binding. `D0 05` transfers the
-   request using existing encrypted fragmentation and purpose `credential-discovery`.
-3. The phone verifies the signed manifest and requires a previously approved
-   registration with unchanged keys, operator, data scope, purposes and notice
-   version. It verifies the additional discovery signature and compares its own
-   fresh-session binding before returning any credential reference.
-4. The phone returns its service-specific ID and echoed request context, encrypted
-   under the NFC session. The service matches the manifest hash, nonce, binding and
-   service ID, then looks up exactly that credential. It does not try every stored
-   symmetric key or pick the first account in its database.
-5. The existing encrypted challenge/signature exchange proves possession of the
-   selected credential. Unknown, revoked, expired, replayed or invalid proofs fail.
+| Profile | AID |
+| --- | --- |
+| possession | `F064652E696E666F726E617574696B01` |
+| biometric | `F064652E696E666F726E617574696B02` |
 
-The NFC command uses the existing chunk header/GET RESPONSE mechanism:
-`CLA D0, INS 05, P1 fragment sequence, P2 continuation flag, Lc, encrypted data`.
+The selected AID fixes the profile for the entire session. A credential ID,
+credential key, and authentication signing key are scoped to that profile.
 
-Request:
+## 1. Provisional NFC session
 
-```json
-{
-  "signed_manifest": {"protocol_version": 2, "manifest": "…", "manifest_signing_public_key": "…", "manifest_signature": "…"},
-  "discovery_nonce": "64 lowercase hex characters",
-  "transport_binding": "64 lowercase hex characters",
-  "discovery_signature": "base64 DER ECDSA signature"
-}
-```
-
-The example abbreviates the existing signed-manifest object. The extra signature
-is SHA256withECDSA/P-256 over this exact byte concatenation:
+The reader sends `D0 00` with:
 
 ```text
-ASCII("nfcauth-v2-credential-discovery-request") || 00 ||
-uint16_be(length(UTF8(service_id))) || UTF8(service_id) ||
-unhex(manifest_hash) || unhex(discovery_nonce) || unhex(transport_binding)
+version(03) || session_id(16) || reader_ephemeral_P256_uncompressed(65)
 ```
 
-Response:
+The phone returns:
 
-```json
-{
-  "protocol_version": 2,
-  "service_id": "example.service",
-  "service_user_id": "opaque ID created at enrollment",
-  "manifest_hash": "64 lowercase hex characters",
-  "discovery_nonce": "same nonce as request",
-  "transport_binding": "same binding as request"
-}
+```text
+version(03) || session_id(16) || phone_ephemeral_P256_uncompressed(65) ||
+phone_challenge(32)
 ```
 
-The signed request is bound to the current NFC session. Replaying a captured
-manifest/signature in a new independently terminated NFC session fails the binding
-check. This does **not** implement distance bounding or prevent a transparent live
-relay of the entire exchange. An authorized service reader can observe the
-service-specific ID; other services cannot request it using unrelated keys.
+Both derive:
 
-## Local backend adapter
-
-`ReferenceBackend` is an ordinary typed Python object. `SQLiteStore` persists enrolled
-credentials in a local SQLite file and keeps pending authentication attempts only in
-its process-local Python `attempts` dictionary. Neither component opens a socket,
-chooses a web framework or requires NFC hardware. Install from the `python/` directory
-with `pip install .` (or `uv sync`). Hardware dependencies are optional: only physical
-readers need `pip install '.[reader]'`.
-
-```python
-from nfc_authenticator.backend import ReferenceBackend
-from nfc_authenticator.service_manifest import ServiceIdentity, ServicePrivacyConfig
-from nfc_authenticator.storage import SQLiteStore
-
-privacy = ServicePrivacyConfig(
-    service_id="example.service",
-    service_name="Example Service",
-    operator_name="Example Operator",
-    privacy_policy_url="https://example.com/privacy",
-    privacy_notice_version="1",
-    requested_fields=("service_user_id", "authentication_public_key"),
-    purposes={"service_user_id": "Identify enrollment", "authentication_public_key": "Verify login"},
-    data_deletion_url_or_contact="privacy@example.com",
-)
-identity = ServiceIdentity.load_or_create("service-identity.json")
-with SQLiteStore("auth.db") as store:
-    # Credentials persist in auth.db; pending attempts exist only in store.attempts.
-    backend = ReferenceBackend(identity, privacy, store, reader_id="local-reader")
-    # Call the methods below using your reader/transport integration.
+```text
+provisional_root = HKDF-SHA256(ECDH, salt=session_id,
+                               info="nfcauth-v3-provisional-session")
 ```
 
-The three methods pass plain Python dictionaries; their implementation never sends
-or receives data. For example, an application can inject its own exchange function:
+Only purpose `session-authentication` is permitted under this provisional
+root.
 
-```python
-from collections.abc import Callable
+## 2. Certificate-authenticated transcript
 
-from nfc_authenticator.backend import ReferenceBackend
-from nfc_authenticator.storage import JsonObject
+The reader sends `D0 06` containing the manifest, DER certificate chain,
+signature algorithm, and signature. The service signs:
 
-
-def authenticate(
-    backend: ReferenceBackend,
-    transport_binding: str,
-    exchange: Callable[[str, JsonObject], JsonObject],
-) -> str:
-    discovery = backend.start_discovery(transport_binding)
-    selection = exchange("credential-discovery", discovery["request"])
-    challenge = backend.create_challenge(discovery["id"], selection)
-    proof = exchange("authentication", challenge["request"])
-    return backend.complete(challenge["login_id"], proof)
+```text
+"NFCAuth-v3-server-auth\0" || version ||
+len(service_origin) || service_origin ||
+len(service_id) || service_id ||
+len(authentication_profile) || authentication_profile ||
+len(manifest_hash) || unhex(manifest_hash) ||
+len(session_id) || session_id ||
+len(phone_challenge) || phone_challenge ||
+len(reader_ephemeral_public_key) || reader_ephemeral_public_key ||
+len(phone_ephemeral_public_key) || phone_ephemeral_public_key
 ```
 
-`exchange` is supplied by your application: it relays messages through the existing
-NFC encrypted transport (directly or via your proxy), and returns the decoded NFC
-transport response. The authentication proof inside remains credential-encrypted.
-Establish that session before calling this function and use its derived binding.
-Only the returned, cryptographically verified ID may be mapped to an account/session.
-Discovery and challenge creation alone never authenticate the caller.
+Lengths are uint32. Supported signatures are ECDSA/SHA-256 and
+RSA-PSS/SHA-256. The phone validates PKIX, DNS SAN, certificate time, digital
+signature key usage, `serverAuth` EKU, profile, manifest, and signature.
 
-### Persistence and enrollment
+Both then reset message counters and derive:
 
-`SQLiteStore` persists enrolled credentials in `registered_devices_v2`. Pending
-attempts are never inserted into SQLite. The Python reader uses this same adapter
-locally and selects the phone's enrolled ID rather than guessing the first
-registration.
+```text
+authenticated_root = HKDF-SHA256(provisional_root, salt=session_id,
+  info="nfcauth-v3-authenticated-session" || SHA256(signed_transcript))
+```
 
-Credentials are supplied by the existing consent/acknowledgement registration flow;
-`register_device(...)` and `remove_registration(...)` allow the host application to
-persist validated enrollment and revoke credentials. They do not perform account
-authorization. Never expose raw credential insertion as an unauthenticated proxy API.
-The service signing/encryption identity remains in its existing private identity file.
-Retain those keys and protect both files: SQLite secrets are not encrypted at rest.
+The signing API client timeout is 2 seconds; the phone's challenge window is 5
+seconds. The API accepts the typed fields above and returns only chain,
+algorithm, and signature.
 
-Attempts last 120 seconds and are scoped to `(service_id, reader_id)`, with at most
-256 pending attempts per scope. Access is protected by the store's process-local lock,
-and consumption removes an attempt before validating the response so a failed proof
-cannot reuse it. Expired entries are pruned when another attempt is created. Closing
-the store, crashing or restarting the process discards every pending attempt; the
-caller then starts a fresh discovery rather than replaying an old attempt ID. The
-`clock` injection exists only for tests.
+## 3. Registration
 
-### Custom proxies and other databases
+The authenticated manifest contains:
 
-An application can call these methods directly, wrap them in HTTP, IPC or another
-transport, or implement `BackendStore` for different persistence. No HTTP endpoints,
-server, certificate layout or communication protocol are prescribed by the adapter.
+```text
+service_origin, service_id, service_name, operator_name,
+privacy_policy_url, privacy_notice_version, requested_fields, purposes,
+data_deletion_url_or_contact, authentication_profile,
+encryption_public_key, privacy_notice_material_change
+```
 
-A remote proxy must authorize the reader and derive `reader_id` from its trusted
-connection/session context, not an arbitrary request field. Use a stable reader ID
-for every request from that reader and route `start_discovery`, `create_challenge`
-and `complete` to the same store instance. Separate processes do not share attempts;
-multi-worker deployments therefore need sticky routing or their own `BackendStore`
-implementation. Different readers using one store share service credentials but
-cannot consume one another's attempts. The default `local` reader ID is suitable for
-one local reader. The host application owns input bounds, secure transport, rate
-limiting, account authorization and session issuance. The adapter provides credential
-storage and protocol verification; it is not an account or network server.
+The service creates an opaque `credential_id` before `D0 01` and sends it
+with a fresh registration nonce and manifest hash. It may associate the ID with
+an existing account. The phone never invents this ID.
 
-## Compatibility and assurance
+After explicit consent, the phone returns exactly the approved fields. It
+always includes the profile-specific public authentication key and includes an
+alias only when requested. The payload is encrypted with a credential key
+derived from phone-ephemeral/service-static P-256 ECDH:
 
-This is an additive protocol-v2 instruction: existing enrollment and authentication
-messages remain unchanged and existing registrations are preserved. Old Android
-builds do not implement D0 05; new discovery readers fail closed rather than guessing
-the first account. Install an updated app before testing username-free login.
+```text
+K0 = HKDF-SHA256(ECDH, salt=manifest_hash,
+  info="nfcauth-v3-credential|service_id|credential_id|profile")
+```
 
-Tests cover proof binding, rejected changed service approval, nonce/context mismatch,
-multiple accounts, cross-reader attempt isolation, expiry, revocation and signature
-failure. Physical-phone interoperability and relay resistance are not certified.
-Biometric enforcement remains the existing application's policy; this change does
-not claim fresh hardware-enforced biometric verification or alter signing-key policy.
+The service persists the credential only after validating the response, then
+sends `D0 04` registration ACK encrypted under `K0`. The phone commits its
+pending registration only after decrypting that ACK.
+
+## 4. Discovery and authentication
+
+The NFC session binding is:
+
+```text
+hex(HMAC-SHA256(binding_key,
+    "nfcauth-v3-credential-discovery-binding"))
+```
+
+`D0 05` contains the service, profile, manifest hash, fresh nonce, and binding.
+The phone requires an unchanged approved registration and returns its
+service-issued `credential_id` plus all locally available `key_epochs`.
+The backend chooses the highest epoch both sides have.
+
+`D0 02` carries an AES-GCM challenge under that credential key. The phone
+validates all outer and inner identities, nonce, epoch, manifest hash, and
+transport binding. The authentication signature binds:
+
+```text
+service_origin, service_id, credential_id, profile, key_epoch,
+nonce, transport_binding, manifest_hash
+```
+
+For the biometric AID, Android Keystore marks the signing key as
+user-authentication-required and the app requires a recent biometric prompt.
+The possession AID uses a separate key with no biometric requirement.
+
+## 5. Key rotation and recovery
+
+After verifying the proof at epoch `n`, both peers derive:
+
+```text
+K[n+1] = HKDF-SHA256(K[n], salt=authentication_nonce,
+  info="nfcauth-v3-key-update|service_id|credential_id|profile|n+1")
+```
+
+The phone durably records `K[n+1]` as pending before returning its proof. The
+service durably promotes it while retaining `K[n]`, then sends `D0 07`
+`KEY_COMMIT` encrypted under `K[n+1]`. The phone decrypts the commit,
+promotes while retaining the old key, and returns an ACK encrypted under the
+new key. The service discards the previous key only after the ACK.
+
+Neither side stores commit/ACK message bodies. Durable state is only the active
+and fallback epochs (plus a pending phone epoch during the exchange).
+`key_epochs` discovery finds the highest common epoch after a crash or lost
+response, preventing permanent drift. Receiving a valid challenge under a
+locally pending epoch is also proof that the service promoted that epoch, so the
+phone promotes it while retaining its fallback before continuing.
+A valid proof under an unacknowledged service-side active epoch likewise
+implicitly acknowledges the preceding commit; the service then removes that
+fallback before deriving another epoch. This avoids both permanent drift and
+an unbounded chain of fallback keys when an ACK is lost.
+
+## APDU transport
+
+Encrypted messages use short-APDU fragments:
+
+```text
+CLA D0, INS, P1 sequence, P2 (80 more / 00 final), Lc, ciphertext fragment
+```
+
+`00 C0 00 00 Le` retrieves response fragments. AES-GCM authenticated data
+binds protocol version, session ID, direction, a length-prefixed purpose, and
+the monotonically increasing directional sequence. Replays, gaps, reordering,
+purpose substitution, and direction reflection fail.

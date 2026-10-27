@@ -52,7 +52,7 @@
             android:exported="false" />
 
         <service
-            android:name=".CardEmulationAuthService"
+            android:name=".PossessionCardEmulationAuthService"
             android:exported="true"
             android:enabled="true"
             android:requireDeviceUnlock="false"
@@ -62,7 +62,21 @@
             </intent-filter>
             <meta-data
                 android:name="android.nfc.cardemulation.host_apdu_service"
-                android:resource="@xml/aid_list" />
+                android:resource="@xml/aid_possession" />
+        </service>
+
+        <service
+            android:name=".BiometricCardEmulationAuthService"
+            android:exported="true"
+            android:enabled="true"
+            android:requireDeviceUnlock="false"
+            android:permission="android.permission.BIND_NFC_SERVICE">
+            <intent-filter>
+                <action android:name="android.nfc.cardemulation.action.HOST_APDU_SERVICE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.nfc.cardemulation.host_apdu_service"
+                android:resource="@xml/aid_biometric" />
         </service>
 
     </application>

@@ -6,6 +6,7 @@ import android.security.keystore.KeyProperties
 import android.util.Base64
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
+import org.json.JSONObject
 import java.nio.charset.StandardCharsets
 import java.security.KeyPairGenerator
 import java.security.KeyStore
@@ -13,121 +14,152 @@ import java.security.MessageDigest
 import java.security.PrivateKey
 import java.security.Signature
 
-class KeyManager(context: Context) {
-    companion object {
-        private const val KEY_PROVIDER = "AndroidKeyStore"
-        private const val SIGNATURE_ALGORITHM = "SHA256withECDSA"
-        private const val SERVICE_KEY_PREFIX = "NFCAuthServiceSigning-"
-        private const val LEGACY_GLOBAL_KEY_ALIAS = "NFCAuthKey"
-        private const val ACTIVE_SESSION_PREFIX = "active-session-"
-        private const val PENDING_SESSION_PREFIX = "pending-session-"
+data class CredentialKeyState(
+    val activeKey: ByteArray,
+    val activeEpoch: Int,
+    val previousKey: ByteArray?,
+    val previousEpoch: Int?,
+    val pendingKey: ByteArray?,
+    val pendingEpoch: Int?,
+    val rotationId: String?,
+) {
+    fun keyForEpoch(epoch: Int): ByteArray? = when (epoch) {
+        activeEpoch -> activeKey.copyOf()
+        previousEpoch -> previousKey?.copyOf()
+        pendingEpoch -> pendingKey?.copyOf()
+        else -> null
     }
+    fun availableEpochs() = listOfNotNull(activeEpoch, previousEpoch, pendingEpoch).distinct().sortedDescending()
+}
 
-    private val keyStore = KeyStore.getInstance(KEY_PROVIDER).apply { load(null) }
+class KeyManager(context: Context) {
+    private val keyStore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
     private val preferences = EncryptedSharedPreferences.create(
-        context,
-        "service_secrets",
-        MasterKey.Builder(context)
-            .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
-            .build(),
+        context, "service-secrets-v3",
+        MasterKey.Builder(context).setKeyScheme(MasterKey.KeyScheme.AES256_GCM).build(),
         EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
         EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
     )
 
-    init {
-        // Version 1 used one key for every reader. Keeping it would allow
-        // cross-service correlation, so it is intentionally retired.
-        if (keyStore.containsAlias(LEGACY_GLOBAL_KEY_ALIAS)) {
-            keyStore.deleteEntry(LEGACY_GLOBAL_KEY_ALIAS)
-        }
+    fun getPublicKeyAsString(serviceId: String, profile: String): String {
+        ensureSigningKey(serviceId, profile)
+        return Base64.encodeToString(
+            keyStore.getCertificate(alias(serviceId, profile)).publicKey.encoded, Base64.NO_WRAP,
+        )
     }
 
-    fun getPublicKeyAsString(serviceId: String): String {
-        ensureSigningKey(serviceId)
-        val certificate = keyStore.getCertificate(signingAlias(serviceId))
-            ?: throw IllegalStateException("Service signing key is unavailable")
-        return Base64.encodeToString(certificate.publicKey.encoded, Base64.NO_WRAP)
-    }
-
-    fun sign(serviceId: String, data: ByteArray): String {
-        ensureSigningKey(serviceId)
-        val privateKey = keyStore.getKey(signingAlias(serviceId), null) as? PrivateKey
-            ?: throw IllegalStateException("Service signing key is unavailable")
-        return Signature.getInstance(SIGNATURE_ALGORITHM).run {
+    fun sign(serviceId: String, profile: String, data: ByteArray): String {
+        ensureSigningKey(serviceId, profile)
+        val privateKey = keyStore.getKey(alias(serviceId, profile), null) as PrivateKey
+        return Signature.getInstance("SHA256withECDSA").run {
             initSign(privateKey)
             update(data)
             Base64.encodeToString(sign(), Base64.NO_WRAP)
         }
     }
 
-    fun savePendingSessionKey(serviceId: String, key: ByteArray) {
-        preferences.edit()
-            .putString(pendingSessionPreference(serviceId), Base64.encodeToString(key, Base64.NO_WRAP))
-            .apply()
+    fun savePendingRegistration(serviceId: String, profile: String, key: ByteArray) {
+        save(serviceId, profile, JSONObject().put("pending", encode(key)).put("pending_epoch", 0))
     }
 
-    fun getPendingSessionKey(serviceId: String): ByteArray? =
-        preferences.getString(pendingSessionPreference(serviceId), null)
-            ?.let { Base64.decode(it, Base64.NO_WRAP) }
+    fun pendingRegistrationKey(serviceId: String, profile: String) =
+        loadJson(serviceId, profile)?.optString("pending")?.takeIf(String::isNotBlank)?.let(::decode)
 
-    fun commitPendingSessionKey(serviceId: String) {
-        val encoded = preferences.getString(pendingSessionPreference(serviceId), null)
-            ?: throw IllegalStateException("Pending service secret is unavailable")
-        preferences.edit()
-            .putString(activeSessionPreference(serviceId), encoded)
-            .remove(pendingSessionPreference(serviceId))
-            .commit()
+    fun commitRegistration(serviceId: String, profile: String) {
+        val pending = pendingRegistrationKey(serviceId, profile) ?: error("Registration key is unavailable")
+        save(serviceId, profile, JSONObject().put("active", encode(pending)).put("active_epoch", 0))
+        pending.fill(0)
     }
 
-    fun getSessionKey(serviceId: String): ByteArray? =
-        preferences.getString(activeSessionPreference(serviceId), null)
-            ?.let { Base64.decode(it, Base64.NO_WRAP) }
-
-    fun discardPendingSessionKey(serviceId: String, deleteSigningKey: Boolean) {
-        preferences.edit().remove(pendingSessionPreference(serviceId)).apply()
-        if (deleteSigningKey) {
-            deleteSigningKey(serviceId)
-        }
-    }
-
-    fun deleteServiceCredentials(serviceId: String) {
-        preferences.edit()
-            .remove(activeSessionPreference(serviceId))
-            .remove(pendingSessionPreference(serviceId))
-            .commit()
-        deleteSigningKey(serviceId)
-    }
-
-    private fun ensureSigningKey(serviceId: String) {
-        val alias = signingAlias(serviceId)
-        if (keyStore.containsAlias(alias)) return
-
-        val generator = KeyPairGenerator.getInstance(KeyProperties.KEY_ALGORITHM_EC, KEY_PROVIDER)
-        val spec = KeyGenParameterSpec.Builder(
-            alias,
-            KeyProperties.PURPOSE_SIGN or KeyProperties.PURPOSE_VERIFY,
+    fun getState(serviceId: String, profile: String): CredentialKeyState? {
+        val value = loadJson(serviceId, profile) ?: return null
+        val active = value.optString("active").takeIf(String::isNotBlank) ?: return null
+        return CredentialKeyState(
+            decode(active), value.getInt("active_epoch"),
+            value.optString("previous").takeIf(String::isNotBlank)?.let(::decode),
+            if (value.has("previous_epoch") && !value.isNull("previous_epoch")) value.getInt("previous_epoch") else null,
+            value.optString("pending").takeIf(String::isNotBlank)?.let(::decode),
+            if (value.has("pending_epoch") && !value.isNull("pending_epoch")) value.getInt("pending_epoch") else null,
+            value.optString("rotation_id").takeIf(String::isNotBlank),
         )
-            .setKeySize(256)
-            .setDigests(KeyProperties.DIGEST_SHA256)
-            .setUserAuthenticationRequired(false)
-            .build()
-        generator.initialize(spec)
-        generator.generateKeyPair()
     }
 
-    private fun deleteSigningKey(serviceId: String) {
-        val alias = signingAlias(serviceId)
-        if (keyStore.containsAlias(alias)) {
-            keyStore.deleteEntry(alias)
+    fun prepareRotation(
+        serviceId: String, profile: String, expectedEpoch: Int, newKey: ByteArray, rotationId: String,
+    ) {
+        val state = getState(serviceId, profile) ?: error("Credential key is unavailable")
+        if (state.pendingEpoch == expectedEpoch + 1 && state.rotationId == rotationId) return
+        require(state.activeEpoch == expectedEpoch)
+        save(
+            serviceId, profile,
+            JSONObject()
+                .put("active", encode(state.activeKey)).put("active_epoch", state.activeEpoch)
+                .put("previous", state.previousKey?.let(::encode)).put("previous_epoch", state.previousEpoch)
+                .put("pending", encode(newKey)).put("pending_epoch", expectedEpoch + 1)
+                .put("rotation_id", rotationId),
+        )
+        state.activeKey.fill(0)
+        state.previousKey?.fill(0)
+    }
+
+    fun promoteRotation(serviceId: String, profile: String, rotationId: String): CredentialKeyState {
+        val state = getState(serviceId, profile) ?: error("Credential key is unavailable")
+        require(state.rotationId == rotationId && state.pendingKey != null && state.pendingEpoch != null)
+        save(
+            serviceId, profile,
+            JSONObject()
+                .put("active", encode(state.pendingKey)).put("active_epoch", state.pendingEpoch)
+                .put("previous", encode(state.activeKey)).put("previous_epoch", state.activeEpoch),
+        )
+        return getState(serviceId, profile)!!
+    }
+
+    fun discardPendingRegistration(serviceId: String, profile: String, deleteSigningKey: Boolean) {
+        preferences.edit().remove(pref(serviceId, profile)).commit()
+        if (deleteSigningKey) deleteSigningKey(serviceId, profile)
+    }
+
+    fun deleteServiceCredentials(serviceId: String, profile: String) {
+        preferences.edit().remove(pref(serviceId, profile)).commit()
+        deleteSigningKey(serviceId, profile)
+    }
+
+    private fun ensureSigningKey(serviceId: String, profile: String) {
+        val keyAlias = alias(serviceId, profile)
+        if (keyStore.containsAlias(keyAlias)) return
+        val spec = KeyGenParameterSpec.Builder(
+            keyAlias, KeyProperties.PURPOSE_SIGN or KeyProperties.PURPOSE_VERIFY,
+        )
+            .setKeySize(256).setDigests(KeyProperties.DIGEST_SHA256)
+            .setUserAuthenticationRequired(profile == ServiceManifestParser.PROFILE_BIOMETRIC)
+            .apply {
+                if (profile == ServiceManifestParser.PROFILE_BIOMETRIC) {
+                    @Suppress("DEPRECATION")
+                    setUserAuthenticationValidityDurationSeconds(15)
+                }
+            }.build()
+        KeyPairGenerator.getInstance(KeyProperties.KEY_ALGORITHM_EC, "AndroidKeyStore").run {
+            initialize(spec)
+            generateKeyPair()
         }
     }
 
-    private fun signingAlias(serviceId: String) = SERVICE_KEY_PREFIX + stableId(serviceId)
-    private fun activeSessionPreference(serviceId: String) = ACTIVE_SESSION_PREFIX + stableId(serviceId)
-    private fun pendingSessionPreference(serviceId: String) = PENDING_SESSION_PREFIX + stableId(serviceId)
-
-    private fun stableId(serviceId: String): String =
-        MessageDigest.getInstance("SHA-256")
-            .digest(serviceId.toByteArray(StandardCharsets.UTF_8))
-            .joinToString("") { "%02x".format(it.toInt() and 0xff) }
+    private fun deleteSigningKey(serviceId: String, profile: String) {
+        val keyAlias = alias(serviceId, profile)
+        if (keyStore.containsAlias(keyAlias)) keyStore.deleteEntry(keyAlias)
+    }
+    private fun save(serviceId: String, profile: String, value: JSONObject) {
+        check(preferences.edit().putString(pref(serviceId, profile), value.toString()).commit())
+    }
+    private fun loadJson(serviceId: String, profile: String) =
+        preferences.getString(pref(serviceId, profile), null)?.let(::JSONObject)
+    private fun alias(serviceId: String, profile: String) =
+        "NFCAuth-v3-" + profile + "-" + stable(serviceId)
+    private fun pref(serviceId: String, profile: String) =
+        "credential-" + profile + "-" + stable(serviceId)
+    private fun encode(value: ByteArray) = Base64.encodeToString(value, Base64.NO_WRAP)
+    private fun decode(value: String) = Base64.decode(value, Base64.NO_WRAP)
+    private fun stable(value: String) = MessageDigest.getInstance("SHA-256")
+        .digest(value.toByteArray(StandardCharsets.UTF_8))
+        .joinToString("") { "%02x".format(it.toInt() and 0xff) }
 }

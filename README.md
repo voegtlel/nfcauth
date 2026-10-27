@@ -1,183 +1,184 @@
-# NFC MFC Authenticator
+# NFC Authenticator
 
-NFC MFC Authenticator is an Android host-card-emulation app and a reference
-Python reader for privacy-aware, service-specific authentication. The app has
+NFC Authenticator is an Android host-card-emulation app and a Python reference
+reader/backend for privacy-aware, service-specific authentication. The app has
 no developer-operated authentication backend, analytics, advertising, or
 tracking.
 
-## Privacy model
+This branch implements protocol version 3. It is intentionally incompatible
+with earlier prerelease protocols and uses a new Android and Python database.
 
-Independent NFC services control the data they receive. The app is responsible
-for validating each service's signed registration manifest, showing the user a
-specific transfer disclosure, and securely transferring only the approved
-fields.
+## Protocol v3 in brief
 
-Before registration the app displays:
+- A service allocates an opaque `credential_id` and may associate it with an
+  existing account. The phone does not create an account identifier.
+- The reader selects either the possession AID or biometric AID. Credentials
+  and Android Keystore signing keys are unique to `(service, profile)`.
+- Every presentation starts with ephemeral P-256 ECDH. Before any application
+  data is accepted, the service signs the session transcript with a Web-PKI
+  certificate valid for its HTTPS origin.
+- The phone validates the certificate chain, DNS SAN, validity, digital
+  signature key usage, `serverAuth` EKU, and transcript signature offline.
+  It then rekeys the provisional session with the transcript hash.
+- Registration data is additionally encrypted directly to the service's
+  long-term P-256 encryption key. All later credential messages are protected
+  with a credential key known only to that phone and service.
+- After a successful proof, both sides derive the next credential key with
+  HKDF. A commit encrypted under the new key and an encrypted ACK prevent
+  either side from discarding the last common epoch prematurely.
+- Discovery advertises the phone's current/fallback epochs. This recovers from
+  an interrupted commit without persisting authentication attempts.
 
-- the recipient service and operator;
-- whether the service signing identity is verified or unverified;
-- every requested field and its purpose;
-- the service privacy policy and deletion instructions;
-- the service signing and encryption identities; and
-- confirmation that identifying data is encrypted directly to the service.
+The detailed wire protocol is in
+[`docs/credential-discovery.md`](docs/credential-discovery.md). The security
+analysis and known limitations are in
+[`docs/protocol-security-analysis.md`](docs/protocol-security-analysis.md).
 
-The affirmative **Agree and register** action authorizes only that displayed
-transfer. A changed operator, scope, purpose, privacy notice, signing identity,
-or encryption identity is highlighted and requires confirmation again. Routine
-authentication inside an approved scope does not repeatedly prompt.
+## Consent and local data
 
-Each service receives a distinct random user ID and a distinct P-256
-authentication signing key. Keys and identifiers are never reused across
-services.
+Before registration, the app shows the recipient service and operator, the
+certificate-verified domain, exact requested fields and purposes, policy and
+deletion links, authentication profile, and confirmation that data is
+encrypted directly to the service. **Agree and register** authorizes only that
+specific transfer.
 
-## Cryptographic protocol
+The app asks again when the operator, requested fields, purposes, encryption
+identity, profile, or materially changed privacy notice differs. Routine
+authentication within the approved scope does not prompt.
 
-Username-free login uses [session-bound credential discovery](docs/credential-discovery.md):
-the phone first verifies its approved service, supplies an opaque service-specific
-credential ID, then proves possession through the existing nonce/signature flow.
-The Python reader and [backend adapter](python/nfc_authenticator/backend.py) support
-multiple enrolled users. The typed adapter stores credentials and single-use attempts
-without choosing a communication protocol: credentials persist in SQLite, while
-pending attempts exist only in a process-local Python dictionary. Call it directly or
-build your own HTTP, IPC or other proxy around its methods.
+The Android app persists:
 
-Protocol version 2 has two encryption layers:
+- service disclosure and approval metadata;
+- the service-issued opaque credential reference;
+- one profile-specific private signing key in Android Keystore; and
+- active/fallback credential-key epochs in encrypted preferences.
 
-1. Every NFC presentation starts a fresh ephemeral P-256 ECDH session. Both
-   sides derive an AES-256-GCM key with HKDF-SHA-256. All application payloads,
-   including the signed manifest, are authenticated and encrypted on the NFC
-   transport. Independent 64-bit counters for each direction are included in
-   the AES-GCM authenticated data, so duplicate, skipped, or out-of-order
-   encrypted messages are rejected.
-2. Registration data is additionally encrypted to the service's signed,
-   long-term P-256 encryption key. The derived service session secret protects
-   all later authentication requests and responses. This makes the selected
-   service—not an NFC relay or the app developer—the decryption endpoint.
+Authentication challenges and attempts are transient. The Python
+`SQLiteStore.attempts` dictionary and Android HCE service keep them only in
+memory. Durable overlap is limited to credential key epochs needed for
+commit/ACK recovery.
 
-Version 1 plaintext traffic is rejected. Large encrypted manifests are split
-across sequenced short APDUs and reassembled before authenticated decryption.
+Deleting a local registration removes its database record, profile-specific
+signing key, and credential keys. It does not delete the service's copy; use
+the displayed service deletion instructions for that.
 
-The reader submits this signed manifest:
+## Service session authentication
 
-```text
-service_id
-service_name
-operator_name
-privacy_policy_url
-privacy_notice_version
-requested_fields
-purposes
-data_deletion_url_or_contact
-encryption_public_key
-registration_nonce
-privacy_notice_material_change
+The reader can call a service signing API or use a local certificate key for
+development. The signing API receives typed transcript fields, not arbitrary
+bytes. Its certificate must:
+
+- chain to a trust anchor accepted by Android;
+- contain a DNS SAN matching `service_origin`;
+- permit digital signatures; and
+- contain the TLS `serverAuth` extended key usage.
+
+The reference HTTP client waits 2 seconds for the signing API. The phone
+accepts the initial certificate proof for 5 seconds after issuing its
+challenge. Readers should complete ordinary API calls well within this bound
+and must not hold a single APDU open during the network call.
+
+Public CA validation proves control of the service domain, not that an operator
+name or policy is legally correct. Revocation freshness is unavailable during
+offline NFC use; certificate expiry is still checked.
+
+## Python interface
+
+`ReferenceBackend` is transport-independent. Credentials persist in
+`registered_credentials`; pending discovery/proof objects live only in the
+process-local `SQLiteStore.attempts` dictionary.
+
+```python
+from nfc_authenticator.backend import ReferenceBackend
+from nfc_authenticator.service_manifest import (
+    FIELD_AUTHENTICATION_PUBLIC_KEY,
+    PROFILE_BIOMETRIC,
+    ServiceIdentity,
+    ServicePrivacyConfig,
+)
+from nfc_authenticator.storage import SQLiteStore
+
+privacy = ServicePrivacyConfig(
+    service_origin="https://login.example.com",
+    service_id="example",
+    service_name="Example",
+    operator_name="Example GmbH",
+    privacy_policy_url="https://login.example.com/privacy",
+    privacy_notice_version="3",
+    requested_fields=(FIELD_AUTHENTICATION_PUBLIC_KEY,),
+    purposes={FIELD_AUTHENTICATION_PUBLIC_KEY: "Verify login"},
+    data_deletion_url_or_contact="https://login.example.com/delete",
+    authentication_profile=PROFILE_BIOMETRIC,
+)
+identity = ServiceIdentity.load_or_create("service-identity-v3.json")
+with SQLiteStore("auth-v3.db") as store:
+    backend = ReferenceBackend(identity, privacy, store, reader_id="reader-1")
+    discovery = backend.start_discovery(transport_binding)
+    challenge = backend.create_challenge(discovery["id"], phone_selection)
+    result = backend.complete(challenge["login_id"], encrypted_proof)
+    backend.confirm_rotation(result, encrypted_commit_ack)
 ```
 
-The signature binds the encryption key and every disclosure field to the
-presented service signing key. A valid self-signature proves integrity but not
-who operates the service. The Android app labels a service **Verified** only
-when its signing-key fingerprint is pinned in `ServiceTrustRegistry`; otherwise
-it is clearly labeled **Unverified**.
+The service should allocate `credential_id` before registration and map it to
+its account internally. Do not encode an email, username, or database primary
+key into it.
 
-## Local data and deletion
+## Run the reference reader
 
-The Android app stores service metadata, approved scope, a service-specific user
-ID, an optional alias, fingerprints, and approval time in its local SQLite
-database. Private authentication keys stay in Android Keystore. Service session
-secrets are stored through Android encrypted preferences. Android backup is
-disabled.
+Requirements are Python 3.9+, `cryptography`, and the optional PN532/Raspberry
+Pi packages:
 
-Tap a registered service to revisit its privacy policy, notice version, approved
-fields and purposes, encryption fingerprint, and deletion instructions. **Delete
-local registration** removes the local database record, service-specific
-signing key, and service secret. It does not delete the service's copy; use the
-displayed service deletion instructions for that.
+```bash
+cd python
+uv sync --extra reader
 
-Upgrading from protocol version 1 intentionally removes legacy registrations
-because their global signing key and unauthenticated plaintext protocol cannot
-be migrated safely. Users must approve a new service-specific registration.
+# Development: local certificate key and chain.
+uv run --extra reader nfc-reader-auth register \
+  --credential-id "$(openssl rand -hex 16)" \
+  --auth-profile biometric \
+  --service-origin https://login.example.com \
+  --certificate-key server-key.pem \
+  --certificate-chain fullchain.pem
 
-## App privacy policy
+# Production-style: scoped API credential is read from NFC_AUTH_SIGNING_API_KEY.
+uv run --extra reader nfc-reader-auth auth \
+  --auth-profile biometric \
+  --service-origin https://login.example.com \
+  --signing-api-url https://login.example.com/nfcauth/session-signature
+```
 
-The repository contains the app-level policy at
-[`docs/privacy-policy.html`](docs/privacy-policy.html), and the same policy is
-available inside the Android app.
+Prefer a unique, scoped, rotatable reader credential or mTLS for the
+reader-to-service call. The signing endpoint must construct and canonicalize
+the protocol transcript itself; it must not become an arbitrary signing oracle.
 
-To publish it for Google Play:
+## Build and test
 
-1. In GitHub, open **Settings → Pages**.
-2. Choose **Deploy from a branch**.
-3. Select the release branch (normally `main`) and the `/docs` folder.
-4. After deployment, enter
-   `https://voegtlel.github.io/nfcauth/privacy-policy.html` in Play Console's
-   privacy-policy field.
-
-Verify the public URL after every policy deployment. It must remain active,
-publicly accessible, non-geofenced, readable without JavaScript, and not be a
-PDF. The developer contact mechanism in the policy is the repository issue
-tracker.
-
-## Build the Android app
-
-Requirements:
-
-- JDK 17
-- Android SDK 36
-- Gradle 8.11.1
+Android requirements: JDK 17, Android SDK 36, Gradle 8.11.1.
 
 ```bash
 gradle :app:testDebugUnitTest
 gradle :app:lint
 gradle :app:bundleRelease
-```
 
-Release builds enable R8 and embed the deobfuscation mapping in the Android App
-Bundle. Tagged GitHub Actions builds sign the bundle with an upload keystore
-provided through these repository secrets:
-
-- `ANDROID_UPLOAD_KEYSTORE_B64`
-- `ANDROID_UPLOAD_KEYSTORE_PASSWORD`
-- `ANDROID_UPLOAD_KEY_ALIAS`
-- `ANDROID_UPLOAD_KEY_PASSWORD`
-
-The workflow decodes the keystore only into the runner's temporary directory,
-uses environment-sourced passwords with `jarsigner`, verifies the signed bundle,
-and removes the keystore after the job. The keystore and its passwords must
-never be committed. If an upload key is replaced, register its public
-certificate through Play Console's upload-key reset process before publishing
-another tag.
-
-## Run the Python reference reader
-
-The Python reader requires Python 3.9+, the `cryptography` package, and the
-Adafruit PN532/Raspberry Pi dependencies in the optional `reader` extra. Using the
-SQLite backend alone does not install or import Raspberry Pi libraries.
-
-```bash
 cd python
-uv sync --extra reader
-uv run --extra reader nfc-reader-auth register
-uv run --extra reader nfc-reader-auth auth
+uv run --with pytest pytest -q
+uv run --extra dev ruff check .
 ```
 
-On first use, the reader creates a persistent P-256 service signing/encryption
-identity in `.nfc_auth_service_identity.json` with private-file permissions and
-stores registrations in `auth.db`; both are ignored by Git. The default
-configuration is an explicitly non-production example whose notice is
-[`docs/example-service-privacy.html`](docs/example-service-privacy.html).
-Configure the service ID, name, operator, HTTPS privacy-policy URL, notice
-version, requested fields and purposes, and deletion contact before using it
-outside development.
+The app/package release is 2.0.0; the wire protocol version is 3.
 
-The service must retain its identity keys. Unexpected signing or encryption key
-changes are shown to the user and require a new confirmation.
+## Privacy policy
+
+The app policy is [`docs/privacy-policy.html`](docs/privacy-policy.html) and is
+also available inside the app. With GitHub Pages enabled, use
+<https://voegtlel.github.io/nfcauth/privacy-policy.html> in Play Console.
 
 ## Logging
 
-Logs contain only operational state. They must never contain names, service or
-user IDs, cryptographic keys, raw APDUs, plaintext payloads, decrypted
-registration/authentication data, nonces, or signatures.
+Logs must never contain names, credential IDs, service IDs, cryptographic keys,
+certificate material, raw APDUs, plaintext/decrypted payloads, nonces, or
+signatures.
 
 ## License
 
-This project is licensed under the MIT License. See [LICENSE](LICENSE).
+MIT; see [`LICENSE`](LICENSE).

@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "nfc-authenticator"
-version = "1.0.0"
-description = "NFC MFC Authenticator Card Reader Library"
+version = "2.0.0"
+description = "Privacy-aware NFC Auth protocol v3 reader and service library"
 readme = "README.md"
 authors = [
     {name = "NFC MFC Auth Team"}

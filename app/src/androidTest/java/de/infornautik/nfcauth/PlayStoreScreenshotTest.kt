@@ -48,7 +48,10 @@ class PlayStoreScreenshotTest {
         }
 
         val registrationIntent = Intent(context, RegistrationActivity::class.java).apply {
-            putExtra(RegistrationActivity.EXTRA_SIGNED_MANIFEST, exampleSignedManifest())
+            putExtra(RegistrationActivity.EXTRA_MANIFEST, exampleManifest())
+            putExtra(RegistrationActivity.EXTRA_OFFER, exampleOffer())
+            putExtra(RegistrationActivity.EXTRA_CERTIFICATE_FINGERPRINT, EXAMPLE_SIGNING_FINGERPRINT)
+            putExtra(RegistrationActivity.EXTRA_VERIFIED_DOMAIN, "voegtlel.github.io")
         }
         ActivityScenario.launch<RegistrationActivity>(registrationIntent).use {
             waitForRegistrationPolicyCheck()
@@ -170,11 +173,12 @@ class PlayStoreScreenshotTest {
             check(
                 database.registerReader(
                     ReaderInfo(
+                        serviceOrigin = "https://voegtlel.github.io",
                         serviceId = "example.service",
                         serviceName = EXAMPLE_SERVICE_NAME,
                         operatorName = "Example Operator",
-                        identityVerified = false,
-                        userId = "service-specific-user",
+                        credentialId = "service-specific-user",
+                        authenticationProfile = ServiceManifestParser.PROFILE_BIOMETRIC,
                         alias = "Personal phone",
                         privacyPolicyUrl = PRIVACY_POLICY_URL,
                         privacyNoticeVersion = "2026-07-29",
@@ -182,7 +186,8 @@ class PlayStoreScreenshotTest {
                         purposes = PURPOSES,
                         deletionUrlOrContact = "privacy@example.com",
                         encryptionKeyFingerprint = EXAMPLE_ENCRYPTION_FINGERPRINT,
-                        signingKeyFingerprint = EXAMPLE_SIGNING_FINGERPRINT,
+                        certificateFingerprint = EXAMPLE_SIGNING_FINGERPRINT,
+                        verifiedDomain = "voegtlel.github.io",
                         manifestHash = EXAMPLE_MANIFEST_HASH,
                         approvedAt = EXAMPLE_APPROVAL_TIME,
                     ),
@@ -191,13 +196,13 @@ class PlayStoreScreenshotTest {
         }
     }
 
-    private fun exampleSignedManifest(): String {
+    private fun exampleManifest(): String {
         val generator = KeyPairGenerator.getInstance("EC").apply {
             initialize(ECGenParameterSpec("secp256r1"))
         }
-        val signingKeyPair = generator.generateKeyPair()
         val encryptionKeyPair = generator.generateKeyPair()
         val manifest = ServiceManifest(
+            serviceOrigin = "https://voegtlel.github.io",
             serviceId = "example.service",
             serviceName = EXAMPLE_SERVICE_NAME,
             operatorName = "Example Operator",
@@ -206,16 +211,12 @@ class PlayStoreScreenshotTest {
             requestedFields = REQUESTED_FIELDS,
             purposes = PURPOSES,
             deletionUrlOrContact = "privacy@example.com",
+            authenticationProfile = ServiceManifestParser.PROFILE_BIOMETRIC,
             encryptionPublicKey = encryptionKeyPair.public.encoded.toBase64(),
-            registrationNonce = "0123456789abcdef0123456789abcdef",
             privacyNoticeMaterialChange = false,
         )
-        val signature = Signature.getInstance("SHA256withECDSA").run {
-            initSign(signingKeyPair.private)
-            update(ServiceManifestParser.canonicalBytes(manifest))
-            sign()
-        }
-        val manifestJson = JSONObject().apply {
+        return JSONObject().apply {
+            put("service_origin", manifest.serviceOrigin)
             put("service_id", manifest.serviceId)
             put("service_name", manifest.serviceName)
             put("operator_name", manifest.operatorName)
@@ -224,16 +225,22 @@ class PlayStoreScreenshotTest {
             put("requested_fields", JSONArray(manifest.requestedFields))
             put("purposes", JSONObject(manifest.purposes))
             put("data_deletion_url_or_contact", manifest.deletionUrlOrContact)
+            put("authentication_profile", manifest.authenticationProfile)
             put("encryption_public_key", manifest.encryptionPublicKey)
-            put("registration_nonce", manifest.registrationNonce)
             put("privacy_notice_material_change", manifest.privacyNoticeMaterialChange)
-        }
-        return JSONObject().apply {
-            put("protocol_version", ServiceManifestParser.PROTOCOL_VERSION)
-            put("manifest", manifestJson)
-            put("manifest_signing_public_key", signingKeyPair.public.encoded.toBase64())
-            put("manifest_signature", signature.toBase64())
         }.toString()
+    }
+
+    private fun exampleOffer(): String {
+        val manifest = ServiceManifestParser.parse(JSONObject(exampleManifest()))
+        return JSONObject()
+            .put("protocol_version", 3)
+            .put("service_id", manifest.serviceId)
+            .put("credential_id", "service-specific-user")
+            .put("authentication_profile", manifest.authenticationProfile)
+            .put("manifest_hash", ServiceManifestParser.hash(manifest))
+            .put("registration_nonce", "01".repeat(32))
+            .toString()
     }
 
     private fun ByteArray.toBase64(): String = Base64.encodeToString(this, Base64.NO_WRAP)
@@ -253,13 +260,10 @@ class PlayStoreScreenshotTest {
             "951dc64f2a4cf988a417681d5c23a6fb7979922bd95861711069e8be61455fae"
         private val REQUESTED_FIELDS = listOf(
             ServiceManifestParser.FIELD_ALIAS,
-            ServiceManifestParser.FIELD_SERVICE_USER_ID,
             ServiceManifestParser.FIELD_AUTHENTICATION_PUBLIC_KEY,
         )
         private val PURPOSES = linkedMapOf(
             ServiceManifestParser.FIELD_ALIAS to "Display a recognizable name in your account.",
-            ServiceManifestParser.FIELD_SERVICE_USER_ID to
-                "Identify this device only within Example Service.",
             ServiceManifestParser.FIELD_AUTHENTICATION_PUBLIC_KEY to
                 "Verify future NFC authentication signatures.",
         )

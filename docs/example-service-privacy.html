@@ -24,10 +24,10 @@
       production service.</p>
 
     <h2>Requested data and purposes</h2>
-    <p>The example service requests an alias to display a chosen name, a random
-      service-specific user ID to distinguish its local account, and a
-      service-specific public authentication key to verify authentication
-      signatures. It does not request any other field.</p>
+    <p>The example service allocates an opaque credential reference and requests
+      an alias to display a chosen name plus a profile-specific public
+      authentication key to verify signatures. The credential reference is not
+      a field supplied by the phone. It does not request any other field.</p>
 
     <h2>Storage and transfer</h2>
     <p>Registration and authentication payloads are authenticated and encrypted
@@ -38,8 +38,8 @@
 
     <h2 id="deletion">Deletion</h2>
     <p>Delete the corresponding row from the reference reader's local
-      <code>registered_devices_v2</code> table, or delete its local
-      <code>auth.db</code> file to remove all example-service registrations.
+      <code>registered_credentials</code> table, or delete its local
+      <code>auth-v3.db</code> file to remove all example-service registrations.
       Deleting the registration on the phone does not remove this service-side
       copy.</p>
 

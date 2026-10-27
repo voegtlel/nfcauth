@@ -6,7 +6,6 @@ import java.io.ByteArrayOutputStream
 import java.io.DataOutputStream
 import java.nio.charset.StandardCharsets
 import java.security.KeyPairGenerator
-import java.security.MessageDigest
 import java.security.SecureRandom
 import java.security.spec.ECGenParameterSpec
 import javax.crypto.Cipher
@@ -15,240 +14,235 @@ import javax.crypto.Mac
 import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.SecretKeySpec
 
-data class RegistrationEncryptionResult(
-    val envelope: JSONObject,
-    val sessionKey: ByteArray,
-)
+data class RegistrationEncryptionResult(val envelope: JSONObject, val sessionKey: ByteArray)
 
 object NfcCrypto {
-    private const val AES_GCM_TAG_BITS = 128
-    private const val AES_GCM_IV_BYTES = 12
-    private val secureRandom = SecureRandom()
+    private val random = SecureRandom()
 
     fun encryptRegistration(
         verified: VerifiedServiceManifest,
-        plaintext: JSONObject,
+        credentialId: String,
+        registrationNonce: String,
+        fields: JSONObject,
     ): RegistrationEncryptionResult {
-        val ephemeralGenerator = KeyPairGenerator.getInstance("EC")
-        ephemeralGenerator.initialize(ECGenParameterSpec("secp256r1"), secureRandom)
-        val ephemeral = ephemeralGenerator.generateKeyPair()
-        val agreement = KeyAgreement.getInstance("ECDH").apply {
-            init(ephemeral.private)
-            doPhase(
-                ServiceManifestParser.parseEncryptionKey(
-                    verified.manifest.encryptionPublicKey,
-                ),
-                true,
-            )
+        val manifest = verified.manifest
+        val ephemeral = KeyPairGenerator.getInstance("EC").run {
+            initialize(ECGenParameterSpec("secp256r1"), random)
+            generateKeyPair()
         }
-        val sharedSecret = agreement.generateSecret()
-        val sessionKey = hkdfSha256(
-            inputKeyMaterial = sharedSecret,
-            salt = hexToBytes(verified.manifestHash),
-            info = "nfcauth-v2-session|${verified.manifest.serviceId}"
-                .toByteArray(StandardCharsets.UTF_8),
-            outputLength = 32,
+        val agreement = KeyAgreement.getInstance("ECDH")
+        agreement.init(ephemeral.private)
+        agreement.doPhase(ServiceManifestParser.parseEncryptionKey(manifest.encryptionPublicKey), true)
+        val shared = agreement.generateSecret()
+        val key = hkdf(
+            shared,
+            hex(verified.manifestHash),
+            ("nfcauth-v3-credential|" + manifest.serviceId + "|" + credentialId + "|" +
+                manifest.authenticationProfile).toByteArray(),
         )
-        sharedSecret.fill(0)
-
+        shared.fill(0)
+        val plaintext = JSONObject()
+            .put("protocol_version", 3)
+            .put("service_id", manifest.serviceId)
+            .put("credential_id", credentialId)
+            .put("authentication_profile", manifest.authenticationProfile)
+            .put("registration_nonce", registrationNonce)
+            .put("fields", fields)
         val encrypted = encryptJson(
             plaintext,
-            sessionKey,
-            registrationAad(verified.manifest.serviceId, verified.manifestHash),
+            key,
+            aad("registration-response", manifest.serviceId, credentialId, manifest.authenticationProfile, 0, verified.manifestHash),
         )
         return RegistrationEncryptionResult(
-            envelope = JSONObject().apply {
-                put("protocol_version", ServiceManifestParser.PROTOCOL_VERSION)
-                put("service_id", verified.manifest.serviceId)
-                put("manifest_hash", verified.manifestHash)
-                put(
-                    "phone_ephemeral_public_key",
-                    Base64.encodeToString(ephemeral.public.encoded, Base64.NO_WRAP),
-                )
-                put("iv", encrypted.getString("iv"))
-                put("ciphertext", encrypted.getString("ciphertext"))
-            },
-            sessionKey = sessionKey,
-        )
-    }
-
-    fun encryptAuthenticationResponse(
-        service: ReaderInfo,
-        sessionKey: ByteArray,
-        plaintext: JSONObject,
-    ): JSONObject {
-        val encrypted = encryptJson(
-            plaintext,
-            sessionKey,
-            authenticationResponseAad(service.serviceId),
-        )
-        return JSONObject().apply {
-            put("protocol_version", ServiceManifestParser.PROTOCOL_VERSION)
-            put("service_id", service.serviceId)
-            put("encryption_key_fingerprint", service.encryptionKeyFingerprint)
-            put("iv", encrypted.getString("iv"))
-            put("ciphertext", encrypted.getString("ciphertext"))
-        }
-    }
-
-    fun decryptAuthenticationRequest(
-        envelope: JSONObject,
-        service: ReaderInfo,
-        sessionKey: ByteArray,
-    ): JSONObject {
-        validateEnvelopeIdentity(envelope, service)
-        return decryptJson(
-            envelope,
-            sessionKey,
-            authenticationRequestAad(service.serviceId),
+            JSONObject()
+                .put("protocol_version", 3)
+                .put("service_id", manifest.serviceId)
+                .put("credential_id", credentialId)
+                .put("authentication_profile", manifest.authenticationProfile)
+                .put("key_epoch", 0)
+                .put("manifest_hash", verified.manifestHash)
+                .put("phone_ephemeral_public_key", Base64.encodeToString(ephemeral.public.encoded, Base64.NO_WRAP))
+                .put("iv", encrypted.getString("iv"))
+                .put("ciphertext", encrypted.getString("ciphertext")),
+            key,
         )
     }
 
     fun decryptRegistrationAcknowledgement(
         envelope: JSONObject,
-        serviceId: String,
-        manifestHash: String,
-        sessionKey: ByteArray,
+        service: ReaderInfo,
+        registrationNonce: String,
+        key: ByteArray,
     ): JSONObject {
-        if (strictInt(envelope, "protocol_version") != ServiceManifestParser.PROTOCOL_VERSION ||
-            strictString(envelope, "service_id") != serviceId ||
-            strictString(envelope, "manifest_hash") != manifestHash
-        ) {
-            throw SecurityException("Registration acknowledgement is for another service.")
-        }
-        return decryptJson(
+        requireIdentity(envelope, service, 0)
+        require(envelope.getString("manifest_hash") == service.manifestHash)
+        val result = decryptJson(
             envelope,
-            sessionKey,
-            registrationAcknowledgementAad(serviceId, manifestHash),
+            key,
+            aad(
+                "registration-ack", service.serviceId, service.credentialId,
+                service.authenticationProfile, 0, service.manifestHash,
+            ),
+        )
+        require(
+            result.getInt("protocol_version") == 3 &&
+                result.getString("status") == "registered" &&
+                result.getString("registration_nonce") == registrationNonce,
+        )
+        return result
+    }
+
+    fun decryptAuthenticationRequest(
+        envelope: JSONObject,
+        service: ReaderInfo,
+        key: ByteArray,
+        epoch: Int,
+    ): JSONObject {
+        requireIdentity(envelope, service, epoch)
+        return decryptJson(
+            envelope, key,
+            aad("authentication-request", service.serviceId, service.credentialId, service.authenticationProfile, epoch),
         )
     }
 
+    fun encryptAuthenticationResponse(
+        service: ReaderInfo,
+        key: ByteArray,
+        epoch: Int,
+        plaintext: JSONObject,
+    ): JSONObject {
+        val encrypted = encryptJson(
+            plaintext, key,
+            aad("authentication-response", service.serviceId, service.credentialId, service.authenticationProfile, epoch),
+        )
+        return identityEnvelope(service, epoch)
+            .put("iv", encrypted.getString("iv"))
+            .put("ciphertext", encrypted.getString("ciphertext"))
+    }
+
+    fun deriveRotatedKey(service: ReaderInfo, currentKey: ByteArray, epoch: Int, nonce: String) =
+        hkdf(
+            currentKey,
+            hex(nonce),
+            (
+                "nfcauth-v3-key-update|" + service.serviceId + "|" + service.credentialId + "|" +
+                    service.authenticationProfile + "|" + (epoch + 1)
+                ).toByteArray(),
+        )
+
+    fun decryptKeyCommit(
+        envelope: JSONObject,
+        service: ReaderInfo,
+        key: ByteArray,
+        epoch: Int,
+    ): JSONObject {
+        requireIdentity(envelope, service, epoch)
+        return decryptJson(
+            envelope, key,
+            aad("key-commit", service.serviceId, service.credentialId, service.authenticationProfile, epoch),
+        )
+    }
+
+    fun encryptKeyCommitAck(
+        service: ReaderInfo,
+        key: ByteArray,
+        epoch: Int,
+        rotationId: String,
+    ): JSONObject {
+        val plaintext = JSONObject()
+            .put("protocol_version", 3)
+            .put("status", "key-commit-acknowledged")
+            .put("service_id", service.serviceId)
+            .put("credential_id", service.credentialId)
+            .put("authentication_profile", service.authenticationProfile)
+            .put("key_epoch", epoch)
+            .put("rotation_id", rotationId)
+        val encrypted = encryptJson(
+            plaintext, key,
+            aad("key-commit-ack", service.serviceId, service.credentialId, service.authenticationProfile, epoch),
+        )
+        return identityEnvelope(service, epoch)
+            .put("iv", encrypted.getString("iv"))
+            .put("ciphertext", encrypted.getString("ciphertext"))
+    }
+
     fun authenticationSignaturePayload(
-        serviceId: String,
+        service: ReaderInfo,
+        epoch: Int,
         nonce: String,
-        authMode: String,
-        userId: String,
-    ): ByteArray {
-        val buffer = ByteArrayOutputStream()
-        DataOutputStream(buffer).use { output ->
-            listOf("nfcauth-v2-auth", serviceId, nonce, authMode, userId).forEach { value ->
-                val bytes = value.toByteArray(StandardCharsets.UTF_8)
-                output.writeInt(bytes.size)
-                output.write(bytes)
+        transportBinding: String,
+    ): ByteArray = ByteArrayOutputStream().also { bytes ->
+        DataOutputStream(bytes).use { output ->
+            listOf(
+                "nfcauth-v3-auth", service.serviceOrigin, service.serviceId, service.credentialId,
+                service.authenticationProfile, epoch.toString(), nonce, transportBinding, service.manifestHash,
+            ).forEach {
+                val encoded = it.toByteArray(StandardCharsets.UTF_8)
+                output.writeInt(encoded.size)
+                output.write(encoded)
             }
         }
-        return buffer.toByteArray()
+    }.toByteArray()
+
+    private fun identityEnvelope(service: ReaderInfo, epoch: Int) = JSONObject()
+        .put("protocol_version", 3)
+        .put("service_id", service.serviceId)
+        .put("credential_id", service.credentialId)
+        .put("authentication_profile", service.authenticationProfile)
+        .put("key_epoch", epoch)
+
+    private fun requireIdentity(envelope: JSONObject, service: ReaderInfo, epoch: Int) {
+        require(
+            envelope.getInt("protocol_version") == 3 &&
+                envelope.getString("service_id") == service.serviceId &&
+                envelope.getString("credential_id") == service.credentialId &&
+                envelope.getString("authentication_profile") == service.authenticationProfile &&
+                envelope.getInt("key_epoch") == epoch,
+        )
     }
 
-    private fun validateEnvelopeIdentity(envelope: JSONObject, service: ReaderInfo) {
-        if (strictInt(envelope, "protocol_version") != ServiceManifestParser.PROTOCOL_VERSION ||
-            strictString(envelope, "service_id") != service.serviceId ||
-            strictString(envelope, "encryption_key_fingerprint") !=
-            service.encryptionKeyFingerprint
-        ) {
-            throw SecurityException("Authentication envelope identity mismatch.")
-        }
-    }
-
-    private fun encryptJson(plaintext: JSONObject, key: ByteArray, aad: ByteArray): JSONObject {
-        val iv = ByteArray(AES_GCM_IV_BYTES).also(secureRandom::nextBytes)
-        val cipher = Cipher.getInstance("AES/GCM/NoPadding").apply {
-            init(
-                Cipher.ENCRYPT_MODE,
-                SecretKeySpec(key, "AES"),
-                GCMParameterSpec(AES_GCM_TAG_BITS, iv),
+    private fun encryptJson(value: JSONObject, key: ByteArray, aad: String): JSONObject {
+        val iv = ByteArray(12).also(random::nextBytes)
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(Cipher.ENCRYPT_MODE, SecretKeySpec(key, "AES"), GCMParameterSpec(128, iv))
+        cipher.updateAAD(aad.toByteArray())
+        return JSONObject()
+            .put("iv", Base64.encodeToString(iv, Base64.NO_WRAP))
+            .put(
+                "ciphertext",
+                Base64.encodeToString(cipher.doFinal(value.toString().toByteArray()), Base64.NO_WRAP),
             )
-            updateAAD(aad)
-        }
-        val ciphertext = cipher.doFinal(plaintext.toString().toByteArray(StandardCharsets.UTF_8))
-        return JSONObject().apply {
-            put("iv", Base64.encodeToString(iv, Base64.NO_WRAP))
-            put("ciphertext", Base64.encodeToString(ciphertext, Base64.NO_WRAP))
-        }
     }
 
-    private fun decryptJson(envelope: JSONObject, key: ByteArray, aad: ByteArray): JSONObject {
-        val iv = decodeBase64(strictString(envelope, "iv"))
-        val ciphertext = decodeBase64(strictString(envelope, "ciphertext"))
-        if (iv.size != AES_GCM_IV_BYTES || ciphertext.size <= AES_GCM_TAG_BITS / 8) {
-            throw SecurityException("Encrypted payload is malformed.")
-        }
-        val plaintext = Cipher.getInstance("AES/GCM/NoPadding").run {
-            init(
-                Cipher.DECRYPT_MODE,
-                SecretKeySpec(key, "AES"),
-                GCMParameterSpec(AES_GCM_TAG_BITS, iv),
-            )
-            updateAAD(aad)
-            doFinal(ciphertext)
-        }
-        return try {
-            JSONObject(String(plaintext, StandardCharsets.UTF_8))
-        } finally {
-            plaintext.fill(0)
-        }
+    private fun decryptJson(value: JSONObject, key: ByteArray, aad: String): JSONObject {
+        val iv = Base64.decode(value.getString("iv"), Base64.NO_WRAP)
+        require(iv.size == 12)
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(Cipher.DECRYPT_MODE, SecretKeySpec(key, "AES"), GCMParameterSpec(128, iv))
+        cipher.updateAAD(aad.toByteArray())
+        return JSONObject(String(cipher.doFinal(Base64.decode(value.getString("ciphertext"), Base64.NO_WRAP))))
     }
 
-    private fun hkdfSha256(
-        inputKeyMaterial: ByteArray,
-        salt: ByteArray,
-        info: ByteArray,
-        outputLength: Int,
-    ): ByteArray {
-        val mac = Mac.getInstance("HmacSHA256")
-        mac.init(SecretKeySpec(salt, "HmacSHA256"))
-        val pseudorandomKey = mac.doFinal(inputKeyMaterial)
-        val output = ByteArrayOutputStream()
-        var previous = ByteArray(0)
-        var counter = 1
-        while (output.size() < outputLength) {
-            mac.init(SecretKeySpec(pseudorandomKey, "HmacSHA256"))
-            mac.update(previous)
-            mac.update(info)
-            mac.update(counter.toByte())
-            previous = mac.doFinal()
-            output.write(previous)
-            counter += 1
-        }
-        pseudorandomKey.fill(0)
-        previous.fill(0)
-        return output.toByteArray().copyOf(outputLength)
+    private fun aad(
+        purpose: String, serviceId: String, credentialId: String, profile: String, epoch: Int,
+        suffix: String = "",
+    ): String {
+        val base = "nfcauth-v3|" + purpose + "|" + serviceId + "|" + credentialId + "|" + profile + "|" + epoch
+        return if (suffix.isEmpty()) base else base + "|" + suffix
     }
 
-    private fun strictString(json: JSONObject, name: String): String =
-        (json.opt(name) as? String)?.takeIf(String::isNotBlank)
-            ?: throw SecurityException("Encrypted envelope is malformed.")
-
-    private fun strictInt(json: JSONObject, name: String): Int =
-        (json.opt(name) as? Number)?.toInt()
-            ?: throw SecurityException("Encrypted envelope is malformed.")
-
-    private fun decodeBase64(value: String): ByteArray = try {
-        Base64.decode(value, Base64.NO_WRAP)
-    } catch (_: IllegalArgumentException) {
-        throw SecurityException("Encrypted envelope is malformed.")
+    private fun hkdf(ikm: ByteArray, salt: ByteArray, info: ByteArray): ByteArray {
+        val extract = Mac.getInstance("HmacSHA256")
+        extract.init(SecretKeySpec(salt, "HmacSHA256"))
+        val prk = extract.doFinal(ikm)
+        val expand = Mac.getInstance("HmacSHA256")
+        expand.init(SecretKeySpec(prk, "HmacSHA256"))
+        expand.update(info)
+        expand.update(1)
+        return expand.doFinal().also { prk.fill(0) }
     }
 
-    private fun hexToBytes(value: String): ByteArray {
-        if (value.length % 2 != 0) throw SecurityException("Fingerprint is malformed.")
-        return ByteArray(value.length / 2) { index ->
-            value.substring(index * 2, index * 2 + 2).toInt(16).toByte()
-        }
+    private fun hex(value: String) = ByteArray(value.length / 2) {
+        value.substring(it * 2, it * 2 + 2).toInt(16).toByte()
     }
-
-    private fun registrationAad(serviceId: String, manifestHash: String) =
-        "nfcauth-v2|registration-response|$serviceId|$manifestHash"
-            .toByteArray(StandardCharsets.UTF_8)
-
-    private fun registrationAcknowledgementAad(serviceId: String, manifestHash: String) =
-        "nfcauth-v2|registration-ack|$serviceId|$manifestHash"
-            .toByteArray(StandardCharsets.UTF_8)
-
-    private fun authenticationRequestAad(serviceId: String) =
-        "nfcauth-v2|authentication-request|$serviceId"
-            .toByteArray(StandardCharsets.UTF_8)
-
-    private fun authenticationResponseAad(serviceId: String) =
-        "nfcauth-v2|authentication-response|$serviceId"
-            .toByteArray(StandardCharsets.UTF_8)
 }

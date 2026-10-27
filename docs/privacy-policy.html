@@ -17,7 +17,7 @@
 <body>
   <main>
     <h1>NFC MFC Authenticator Privacy Policy</h1>
-    <p class="meta"><strong>Effective:</strong> July 29, 2026<br>
+    <p class="meta"><strong>Effective:</strong> October 27, 2026<br>
       <strong>Developer:</strong> Lukas Voegtle</p>
 
     <h2>Overview</h2>
@@ -31,9 +31,9 @@
     <p>For each approved service, the app stores the service identity and
       verification status, approved data fields and purposes, privacy-policy URL
       and notice version, deletion instructions, cryptographic key fingerprints,
-      approval time, a random service-specific user ID, an optional alias, and
-      service-specific cryptographic credentials. Identifiers and signing keys
-      are never reused between services.</p>
+      approval time, a service-issued opaque credential reference, an optional
+      alias, and service- and profile-specific cryptographic credentials.
+      Credential references and signing keys are never reused across services.</p>
 
     <h2>Transfers to independent services</h2>
     <p>Before registration, the app shows the recipient, operator,
@@ -51,9 +51,10 @@
     <h2>Independent service responsibility</h2>
     <p>Each recipient service independently controls data after decryption. Its
       own privacy policy and deletion instructions govern that processing. The
-      app performs technical validation and accurately presents service-provided
-      information, but does not certify an unverified service or guarantee that
-      its policy is legally sufficient.</p>
+      app verifies that the presented certificate controls the service domain
+      and accurately presents service-provided information. Domain verification
+      does not certify the named operator or guarantee that its policy is legally
+      sufficient.</p>
 
     <h2>Retention, backup, and deletion</h2>
     <p>Local registrations remain until the user deletes them in the app, clears
@@ -65,7 +66,7 @@
 
     <h2>Security and logs</h2>
     <p>Private signing keys are held by Android Keystore. Stored service secrets
-      are encrypted locally. Protocol version 1 plaintext traffic is rejected.
+      are encrypted locally. The app accepts only protocol version 3 encrypted traffic.
       Logs do not contain names, user or service identifiers, keys, plaintext
       payloads, or decrypted registration/authentication data.</p>
 

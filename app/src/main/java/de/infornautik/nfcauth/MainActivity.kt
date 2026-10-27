@@ -110,13 +110,11 @@ class MainActivity : AppCompatActivity() {
         val details = SpannableStringBuilder().apply {
             append(getString(R.string.service_details_operator, service.operatorName))
             append("\n")
-            append(
-                if (service.identityVerified) {
-                    getString(R.string.service_details_verified)
-                } else {
-                    getString(R.string.service_details_unverified)
-                },
-            )
+            append(getString(R.string.service_details_verified))
+            append(" ")
+            append(service.verifiedDomain)
+            append("\n")
+            append(service.authenticationProfile)
             append("\n")
             append(getString(R.string.service_details_notice, service.privacyNoticeVersion))
             append("\n")
@@ -183,8 +181,8 @@ class MainActivity : AppCompatActivity() {
 
     private fun deleteLocalRegistration(service: ReaderInfo) {
         try {
-            keyManager.deleteServiceCredentials(service.serviceId)
-            authDatabase.deleteReader(service.serviceId)
+            keyManager.deleteServiceCredentials(service.serviceId, service.authenticationProfile)
+            authDatabase.deleteReader(service.serviceId, service.authenticationProfile)
             loadReaders()
             Toast.makeText(
                 this,

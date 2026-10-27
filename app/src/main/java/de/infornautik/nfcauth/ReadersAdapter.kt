@@ -28,12 +28,8 @@ class ReadersAdapter(private val onReaderClick: (ReaderInfo) -> Unit) :
         fun bind(reader: ReaderInfo) {
             title.text = reader.serviceName
             subtitle.text = itemView.context.getString(
-                if (reader.identityVerified) {
-                    R.string.service_list_verified
-                } else {
-                    R.string.service_list_unverified
-                },
-                reader.operatorName,
+                R.string.service_list_verified,
+                reader.operatorName + " · " + reader.authenticationProfile,
             )
             itemView.setOnClickListener { onReaderClick(reader) }
         }
@@ -41,7 +37,8 @@ class ReadersAdapter(private val onReaderClick: (ReaderInfo) -> Unit) :
 
     private class ReaderDiffCallback : DiffUtil.ItemCallback<ReaderInfo>() {
         override fun areItemsTheSame(oldItem: ReaderInfo, newItem: ReaderInfo): Boolean =
-            oldItem.serviceId == newItem.serviceId
+            oldItem.serviceId == newItem.serviceId &&
+                oldItem.authenticationProfile == newItem.authenticationProfile
 
         override fun areContentsTheSame(oldItem: ReaderInfo, newItem: ReaderInfo): Boolean =
             oldItem == newItem
