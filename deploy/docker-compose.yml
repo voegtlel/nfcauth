@@ -1,5 +1,6 @@
 services:
   bridge:
+    image: ${NFCAUTH_BRIDGE_IMAGE:-nfcauth-bridge:4.0.0}
     build:
       context: ../python
     restart: unless-stopped
@@ -31,7 +32,9 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-    networks: [backend]
+    # backend reaches only PostgreSQL and Caddy. egress is attached only to the
+    # bridge so OIDC and optional token-exchange HTTPS calls can reach Authentik.
+    networks: [backend, egress]
 
   postgres:
     image: postgres:17-alpine
@@ -69,6 +72,7 @@ services:
 networks:
   backend:
     internal: true
+  egress:
 
 volumes:
   bridge-db:

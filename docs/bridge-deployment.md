@@ -18,6 +18,17 @@ filesystem and a PostgreSQL enrollment database.
    `deploy/secrets/token-signing-key.pem`.
 6. Configure the environment values used by `docker-compose.yml`.
 
+Start from the checked-in template:
+
+```shell
+cp deploy/.env.example deploy/.env
+```
+
+Keep `deploy/.env`, `deploy/secrets/`, and private PKI material out of version
+control. The default Compose configuration builds and tags
+`nfcauth-bridge:4.0.0`; set `NFCAUTH_BRIDGE_IMAGE` to a registry reference if
+you publish the image separately.
+
 The certificate key must be available to the bridge because it signs typed NFC
 requests. The certificate presented by the public HTTPS endpoint must be the
 same leaf certificate returned in signed manifests and NFC messages. Use a
@@ -32,9 +43,45 @@ Both reverse proxy to an internal-only bridge port. Do not expose port 8080.
 
 ## Run
 
+### Standalone Compose stack
+
 ```shell
-docker compose --env-file .env -f deploy/docker-compose.yml up --build -d
+docker compose \
+  --env-file deploy/.env \
+  -f deploy/docker-compose.yml \
+  up --build -d
 ```
+
+This starts the bridge, PostgreSQL, and the included Caddy reverse proxy. Only
+Caddy publishes port 443. PostgreSQL and port 8080 remain on an internal
+network. The bridge alone also joins an egress network so it can make outbound
+HTTPS calls to Authentik.
+
+To use an already-published image rather than building locally, set
+`NFCAUTH_BRIDGE_IMAGE` and omit `--build`.
+
+### Join an existing Authentik Docker network
+
+If Authentik runs in Compose on the same host, set
+`AUTHENTIK_DOCKER_NETWORK` to its actual Docker network name and add the
+override:
+
+```shell
+docker compose \
+  --env-file deploy/.env \
+  -f deploy/docker-compose.yml \
+  -f deploy/docker-compose.authentik.yml \
+  up --build -d
+```
+
+Use Authentik's container-network URL for the OIDC endpoints only when its TLS
+certificate and hostname still validate from the bridge. Otherwise, use its
+normal public HTTPS URL; the bridge has outbound access for that purpose.
+
+The Authentik override does not weaken the public boundary: Caddy still owns
+the provider HTTPS endpoint and the separate terminal mTLS endpoint. Do not
+publish the bridge's port 8080 or allow clients to supply the trusted terminal
+identity headers directly.
 
 Verify `/health/ready`, fetch and validate the signed well-known document, then
 perform an enrollment before provisioning a terminal. Back up PostgreSQL and

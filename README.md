@@ -82,6 +82,23 @@ Run the bridge through Docker Compose as described in
 [the deployment guide](docs/bridge-deployment.md), or configure the
 `NFCAUTH_BRIDGE_*` environment variables and run `nfc-auth-bridge`.
 
+The repository includes two Compose modes:
+
+```shell
+# Standalone bridge + PostgreSQL + Caddy
+cp deploy/.env.example deploy/.env
+docker compose --env-file deploy/.env -f deploy/docker-compose.yml up --build -d
+
+# Optional: also join Authentik's existing Docker network
+docker compose --env-file deploy/.env \
+  -f deploy/docker-compose.yml \
+  -f deploy/docker-compose.authentik.yml \
+  up --build -d
+```
+
+PN532 is unrelated to bridge deployment and remains an optional terminal
+adapter.
+
 ## Privacy and logging
 
 The phone persists provider disclosure and consent metadata, a provider-assigned

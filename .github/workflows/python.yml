@@ -48,6 +48,15 @@ jobs:
       working-directory: ${{ github.workspace }}
       run: docker build --file python/Dockerfile python
 
+    - name: Validate Compose deployment options
+      working-directory: ${{ github.workspace }}
+      run: |
+        docker compose --env-file deploy/.env.example \
+          -f deploy/docker-compose.yml config -q
+        docker compose --env-file deploy/.env.example \
+          -f deploy/docker-compose.yml \
+          -f deploy/docker-compose.authentik.yml config -q
+
     - name: Upload Python package
       uses: actions/upload-artifact@v7
       with:
