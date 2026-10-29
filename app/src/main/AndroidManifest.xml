@@ -48,6 +48,11 @@
             android:exported="false" />
 
         <activity
+            android:name=".RenewalActivity"
+            android:exported="false"
+            android:theme="@style/Theme.Dialog" />
+
+        <activity
             android:name=".BiometricPromptActivity"
             android:theme="@style/Theme.Dialog"
             android:exported="false"

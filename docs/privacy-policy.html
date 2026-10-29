@@ -17,7 +17,7 @@
 <body>
   <main>
     <h1>NFC MFC Authenticator Privacy Policy</h1>
-    <p class="meta"><strong>Effective:</strong> October 27, 2026<br>
+    <p class="meta"><strong>Effective:</strong> October 29, 2026<br>
       <strong>Developer:</strong> Lukas Voegtle</p>
 
     <h2>Overview</h2>
@@ -25,13 +25,15 @@
       registration or authentication data. The app contains no advertising,
       analytics, or tracking SDK. It stores credentials and independent service
       metadata locally on the device and transfers data only when the user
-      deliberately registers with a provider or presents the phone to an NFC terminal.</p>
+      deliberately registers with a provider, explicitly renews a registration,
+      or presents the phone to an NFC terminal. The app sends no background
+      heartbeat and does not periodically contact providers.</p>
 
     <h2>Data stored locally</h2>
     <p>For each approved service, the app stores the service identity and
       verification status, approved data fields and purposes, privacy-policy URL
       and notice version, deletion instructions, cryptographic key fingerprints,
-      approval time, a service-issued opaque credential reference, and
+      approval and expiration times, a service-issued opaque credential reference, and
       service- and profile-specific cryptographic credentials.
       Credential references and signing keys are never reused across services.</p>
 
@@ -44,9 +46,15 @@
       directly to the selected service. The developer and intermediaries cannot
       decrypt them. A service receives no fields beyond those disclosed and
       approved.</p>
+    <p>Manual renewal requires a separate confirmation and sends only a
+      one-time proof signed by the already approved service-specific credential.
+      The app rechecks the provider identity, signed disclosure, encryption key,
+      and policy before offering renewal.</p>
     <p>The app makes a limited HTTPS request to confirm that a service-provided
-      privacy-policy URL is accessible. The website operator may receive ordinary
-      network metadata such as an IP address as part of that request.</p>
+      privacy-policy URL is accessible and to fetch signed provider metadata.
+      It also uses HTTPS for a user-requested registration or renewal. The
+      website operator may receive ordinary network metadata such as an IP
+      address as part of those requests.</p>
 
     <h2>Independent service responsibility</h2>
     <p>Each recipient service independently controls data after decryption. Its
@@ -57,10 +65,17 @@
       sufficient.</p>
 
     <h2>Retention, backup, and deletion</h2>
+    <p>The app displays the last provider registration expiration confirmed
+      during registration or explicit renewal. Providers may retain a
+      registration for their disclosed lifetime and extend their server-side
+      expiry after a verified authentication. Because the offline phone cannot
+      observe that terminal-to-provider result, its displayed date may be
+      earlier than the provider's authoritative date. An expired provider
+      registration must be registered again.</p>
     <p>Local registrations remain until the user deletes them in the app, clears
       app storage, or uninstalls the app. Android backup is disabled for app
-      data. Deleting a registration removes its local record, service-specific
-      signing key. Local deletion does not delete a
+      data. Deleting a registration removes its local record and
+      service-specific signing key. Local deletion does not delete a
       recipient service’s copy; users should follow the service’s displayed
       deletion instructions.</p>
 

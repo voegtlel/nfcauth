@@ -26,6 +26,7 @@ class BridgeService:
         signer: RequestSigner,
         issuer: TokenIssuer,
         *,
+        credential_lifetime_seconds: int = 548 * 86400,
         clock=time.time,
     ) -> None:
         self.service_id = service_id
@@ -35,6 +36,7 @@ class BridgeService:
         self.enrollments = enrollments
         self.signer = signer
         self.issuer = issuer
+        self.credential_lifetime_seconds = credential_lifetime_seconds
         self.clock = clock
 
     async def create_transaction(
@@ -91,13 +93,14 @@ class BridgeService:
         request = transaction.request
         if request is None or transaction.terminal != terminal:
             raise ValueError("Transaction terminal does not match")
+        now = int(self.clock())
         credential = await self.enrollments.get_credential(assertion.credential_id)
-        if credential is None or credential.revoked:
-            raise PermissionError("Credential is unknown or revoked")
+        if credential is None or credential.revoked or credential.expires_at <= now:
+            raise PermissionError("Credential is unknown, revoked, or expired")
         if credential.service_id != self.service_id or credential.profile != transaction.assurance:
             raise PermissionError("Credential is not valid for this service or profile")
-        assertion.verify(credential.public_key, request, now=int(self.clock()))
-        return await self.issuer.issue(
+        assertion.verify(credential.public_key, request, now=now)
+        token = await self.issuer.issue(
             Subject(credential.issuer, credential.subject),
             terminal,
             transaction.audience,
@@ -106,6 +109,15 @@ class BridgeService:
             transaction.transaction_id,
             timedelta(minutes=10),
         )
+        renewed = await self.enrollments.renew_credential(
+            credential.credential_id,
+            now=now,
+            expires_at=now + self.credential_lifetime_seconds,
+            authenticated=True,
+        )
+        if renewed is None:
+            raise PermissionError("Credential could not be extended after authentication")
+        return token, renewed.expires_at
 
     async def bind_delivery_session(
         self, transaction_id: str, terminal: TerminalIdentity, session: SessionBinding

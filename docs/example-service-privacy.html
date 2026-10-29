@@ -16,7 +16,7 @@
 <body>
   <main>
     <h1>Example NFC Service Privacy Notice</h1>
-    <p><strong>Notice version:</strong> 2026-07-29<br>
+    <p><strong>Notice version:</strong> 2026-10-29<br>
       <strong>Operator:</strong> Example Service Operator</p>
 
     <p class="notice">This notice belongs only to the repository's demonstration
@@ -24,24 +24,35 @@
       production service.</p>
 
     <h2>Requested data and purposes</h2>
-    <p>The example service allocates an opaque credential reference and requests
-      an alias to display a chosen name plus a profile-specific public
-      authentication key to verify signatures. The credential reference is not
-      a field supplied by the phone. It does not request any other field.</p>
+    <p>The example provider allocates an opaque credential reference and
+      requests a profile-specific public authentication key to verify approvals.
+      The reference associates that key with the provider account selected
+      during the provider's OIDC login. The reference is not supplied by the
+      phone and the example does not request an alias or any other field.</p>
 
     <h2>Storage and transfer</h2>
     <p>Registration and authentication payloads are authenticated and encrypted
-      directly between the phone and this example service. The reference reader
-      stores the approved fields, its service session secret, and registration
-      time in its local SQLite database. It includes no analytics or remote
-      backend.</p>
+      directly between the phone and this example provider. The provider bridge
+      stores the OIDC issuer and subject, opaque credential reference, public
+      authentication key, profile, registration/expiration timestamps, and last
+      verified authentication or explicit renewal time in PostgreSQL. It stores
+      no access tokens, refresh tokens, NFC session keys, or authentication
+      attempts. It includes no analytics or tracking.</p>
+
+    <h2>Retention and renewal</h2>
+    <p>The default registration lifetime is 548 days. A verified authentication
+      or explicit user-approved renewal extends it by another 548 days. The
+      phone sends no heartbeat. Expired records are ineligible for
+      authentication or renewal and are deleted after a 30-day cleanup grace
+      period.</p>
 
     <h2 id="deletion">Deletion</h2>
-    <p>Delete the corresponding row from the reference reader's local
-      <code>registered_credentials</code> table, or delete its local
-      <code>auth-v4.db</code> file to remove all example-service registrations.
-      Deleting the registration on the phone does not remove this service-side
-      copy.</p>
+    <p>Use the provider's configured credential-management endpoint to revoke
+      and delete the corresponding <code>credentials</code> row. In the
+      demonstration stack, an operator may instead delete the row from the
+      PostgreSQL database or remove the development volume to remove all
+      registrations. Deleting the registration on the phone does not remove
+      this provider-side copy.</p>
 
     <h2>Contact</h2>
     <p>Questions about this demonstration service can be submitted through the

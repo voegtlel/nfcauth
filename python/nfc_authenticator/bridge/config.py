@@ -4,6 +4,7 @@ import hashlib
 import json
 from pathlib import Path
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from .models import TerminalIdentity
@@ -30,6 +31,9 @@ class BridgeSettings(BaseSettings):
     token_exchange_endpoint: str | None = None
     token_exchange_client_id: str | None = None
     token_exchange_client_secret: str | None = None
+    credential_lifetime_days: int = Field(default=548, ge=365, le=730)
+    credential_cleanup_grace_days: int = Field(default=30, ge=0, le=365)
+    credential_cleanup_interval_seconds: int = Field(default=86400, ge=60, le=604800)
 
 
 def load_manifest(path: Path) -> tuple[dict, str]:

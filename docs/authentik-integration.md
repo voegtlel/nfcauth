@@ -18,6 +18,10 @@ Code plus PKCE, validates issuer, audience, expiry, nonce and signature, and
 stores only immutable `(issuer, sub)` as the account mapping.
 
 Do not request `offline_access`. The bridge does not store user refresh tokens.
+Routine authentication and explicit registration renewal do not send the user
+through Authentik again. Renewal proves control of the already enrolled
+service-specific phone key. Authentik login is used only for first registration
+or re-registration after expiry/key loss.
 
 The included deployment supports both an external Authentik URL and a
 same-host Compose deployment. For the latter, set `AUTHENTIK_DOCKER_NETWORK`

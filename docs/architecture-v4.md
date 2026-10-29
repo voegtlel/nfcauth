@@ -22,11 +22,26 @@ APIs trust the bridge directly.
 ## Durable and transient state
 
 The phone stores the provider identity, consent receipt, bridge-assigned
-credential ID, and Android Keystore alias. It never stores access tokens or
-authentication attempts. The bridge durably stores account-to-public-key
-enrollments. Registration state and authentication transactions expire from
-memory; a restart simply requires the user to try again. Terminals retain their
-mTLS identity but keep transaction state and access tokens in memory only.
+credential ID, registration expiry, and Android Keystore alias. It never stores
+access tokens or authentication attempts. The bridge durably stores
+account-to-public-key enrollments, registration timestamps, expiry, and the
+last verified authentication or explicit renewal time. Registration state,
+renewal challenges, and authentication transactions expire from memory; a
+restart simply requires the user to try again. Terminals retain their mTLS
+identity but keep transaction state and access tokens in memory only.
+
+The default registration lease is 548 days. A verified authentication extends
+it from that authentication time. A user may instead open the registration
+details and explicitly renew by signing a one-use challenge with the existing
+service-specific key. The phone never sends a periodic heartbeat. Expired
+credentials enter a 30-day cleanup grace period and are then deleted from the
+bridge database; expiry is database hygiene, while revocation remains the
+security control for a lost device.
+
+The bridge database is authoritative for expiry. The phone cannot observe the
+terminal-to-bridge token result while it is offline, so it never guesses that a
+lease was extended after NFC. Its displayed expiry is the last value confirmed
+during registration or explicit renewal and can conservatively lag the server.
 
 ## Trust boundaries
 

@@ -33,6 +33,7 @@ class TerminalToken:
     token_type: str
     expires_in: int
     scope: str
+    registration_expires_at: int | None = None
 
 
 def validate_protected_api_url(

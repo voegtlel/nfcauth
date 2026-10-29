@@ -15,6 +15,17 @@ class EnrollmentStore(Protocol):
 
     async def revoke_credential(self, credential_id: str) -> bool: ...
 
+    async def renew_credential(
+        self,
+        credential_id: str,
+        *,
+        now: int,
+        expires_at: int,
+        authenticated: bool,
+    ) -> Credential | None: ...
+
+    async def purge_expired_credentials(self, cutoff: int) -> int: ...
+
 
 class TransactionStore(Protocol):
     async def create(self, transaction: Transaction) -> None: ...

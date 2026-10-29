@@ -15,6 +15,7 @@ from nfc_authenticator.bridge.app import create_app
 from nfc_authenticator.bridge.issuers import LocalJwtTokenIssuer
 from nfc_authenticator.bridge.models import Credential, Subject, TerminalIdentity
 from nfc_authenticator.bridge.registration import REGISTRATION_DOMAIN, RegistrationAttempts, RegistrationCoordinator
+from nfc_authenticator.bridge.renewal import RenewalAttempts, RenewalCoordinator
 from nfc_authenticator.bridge.security import CertificateRequestSigner, verify_signed_request
 from nfc_authenticator.bridge.service import BridgeService
 from nfc_authenticator.bridge.stores import MemoryEnrollmentStore, MemoryTransactionStore
@@ -70,7 +71,14 @@ async def test_two_tap_authorization_issues_one_ten_minute_token(tmp_path) -> No
     signer = certificate_signer(tmp_path)
     terminal = TerminalIdentity("terminal-1", "f" * 64, frozenset({"inventory"}), frozenset({"inventory.read"}))
     credential = Credential(
-        "credential-1", "https://id.example.test", "account-7", "example", "biometric", public_key_der_b64(phone_key.public_key())
+        "credential-1",
+        "https://id.example.test",
+        "account-7",
+        "example",
+        "biometric",
+        public_key_der_b64(phone_key.public_key()),
+        int(clock()) - 86_400,
+        int(clock()) + 86_400,
     )
     await enrollments.save_credential(credential)
     service = BridgeService(
@@ -107,12 +115,19 @@ async def test_two_tap_authorization_issues_one_ten_minute_token(tmp_path) -> No
 
     delivery = await service.bind_delivery_session(transaction.transaction_id, terminal, session(b"c"))
     assert delivery["message_type"] == "assertion_delivery"
-    token = await service.complete(transaction.transaction_id, terminal, assertion)
+    token, registration_expires_at = await service.complete(transaction.transaction_id, terminal, assertion)
     assert token.expires_in == 600
+    assert registration_expires_at == int(clock()) + 548 * 86_400
+    renewed = await enrollments.get_credential(credential.credential_id)
+    assert renewed is not None
+    assert renewed.last_authenticated_at == int(clock())
     claims = jwt.decode(token.access_token, token_key.public_key(), algorithms=["ES256"], audience="inventory")
     assert claims["sub"] == "account-7"
     assert claims["scope"] == "inventory.read"
     assert claims["act"]["sub"] == "terminal-1"
+    assert claims["amr"] == ["nfc", "biometric"]
+    assert claims["nfcauth_assurance_source"] == "authenticator-asserted"
+    assert "hwk" not in claims["amr"]
 
     with pytest.raises(ValueError):
         await service.complete(transaction.transaction_id, terminal, assertion)
@@ -189,7 +204,15 @@ async def test_provider_assigns_credential_id_and_completion_requires_phone_key(
     key = ec.generate_private_key(ec.SECP256R1())
     enrollments = MemoryEnrollmentStore()
     attempts = RegistrationAttempts()
-    coordinator = RegistrationCoordinator("example", attempts, enrollments, FakeOidc())
+    now = 1_800_000_000
+    coordinator = RegistrationCoordinator(
+        "example",
+        attempts,
+        enrollments,
+        FakeOidc(),
+        credential_lifetime_seconds=548 * 86_400,
+        clock=lambda: now,
+    )
     attempt, url = await coordinator.start("possession", public_key_der_b64(key.public_key()))
     assert "code_challenge=" in url
     completed = await coordinator.callback(attempt.state, "valid-code")
@@ -200,7 +223,75 @@ async def test_provider_assigns_credential_id_and_completion_requires_phone_key(
     credential = await coordinator.complete(completed.registration_id, completed.completion_code, signature)
     assert credential.credential_id == completed.credential_id
     assert credential.subject == "provider-account-42"
+    assert credential.registered_at == now
+    assert credential.expires_at == now + 548 * 86_400
     assert await enrollments.get_credential(credential.credential_id) == credential
+
+
+@pytest.mark.asyncio
+async def test_manual_renewal_uses_existing_key_and_is_one_use() -> None:
+    now = 1_800_000_000
+    key = ec.generate_private_key(ec.SECP256R1())
+    enrollments = MemoryEnrollmentStore()
+    credential = Credential(
+        "credential-123456",
+        "https://id.example.test",
+        "account-7",
+        "example",
+        "possession",
+        public_key_der_b64(key.public_key()),
+        now - 86_400,
+        now + 86_400,
+    )
+    await enrollments.save_credential(credential)
+    renewals = RenewalCoordinator(
+        "example",
+        RenewalAttempts(clock=lambda: now),
+        enrollments,
+        credential_lifetime_seconds=548 * 86_400,
+        clock=lambda: now,
+    )
+
+    attempt = await renewals.start(credential.credential_id)
+    signature = base64.b64encode(key.sign(attempt.payload(), ec.ECDSA(hashes.SHA256()))).decode()
+    renewed = await renewals.complete(attempt.renewal_id, signature)
+
+    assert renewed.expires_at == now + 548 * 86_400
+    assert renewed.last_renewed_at == now
+    assert renewed.last_authenticated_at is None
+    with pytest.raises(ValueError):
+        await renewals.complete(attempt.renewal_id, signature)
+
+
+@pytest.mark.asyncio
+async def test_expired_registration_cannot_renew_and_is_purged_after_grace() -> None:
+    now = 1_800_000_000
+    key = ec.generate_private_key(ec.SECP256R1())
+    enrollments = MemoryEnrollmentStore()
+    credential = Credential(
+        "credential-expired",
+        "https://id.example.test",
+        "account-7",
+        "example",
+        "possession",
+        public_key_der_b64(key.public_key()),
+        now - 600,
+        now - 300,
+    )
+    await enrollments.save_credential(credential)
+    renewals = RenewalCoordinator(
+        "example",
+        RenewalAttempts(clock=lambda: now),
+        enrollments,
+        credential_lifetime_seconds=548 * 86_400,
+        clock=lambda: now,
+    )
+
+    with pytest.raises(ValueError):
+        await renewals.start(credential.credential_id)
+    assert await enrollments.purge_expired_credentials(now - 301) == 0
+    assert await enrollments.purge_expired_credentials(now - 300) == 1
+    assert await enrollments.get_credential(credential.credential_id) is None
 
 
 def test_bearer_destination_requires_secure_transport_or_exact_exception() -> None:

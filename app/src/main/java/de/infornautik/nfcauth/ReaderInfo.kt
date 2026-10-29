@@ -18,6 +18,7 @@ data class ReaderInfo(
     val verifiedDomain: String,
     val manifestHash: String,
     val approvedAt: Long,
+    val registrationExpiresAt: Long,
     val allowedAudiences: List<String> = emptyList(),
     val allowedScopes: List<String> = emptyList(),
 )

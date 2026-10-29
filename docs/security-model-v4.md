@@ -13,6 +13,10 @@
   prevent cross-provider correlation, identifier collisions and biometric downgrade.
 - Terminal policy independently caps audiences, scopes and assurance.
 - A stolen callback completion code cannot enroll without the phone key.
+- Registration and renewal challenges are bounded, expire in memory, and are
+  one-use. Expired credentials cannot authenticate or renew.
+- OIDC signing algorithms are explicitly limited to RS256 and ES256; the
+  provider's JWKS cannot select an arbitrary JWT algorithm.
 
 ## Residual risks
 
@@ -30,3 +34,16 @@ Bridge compromise is equivalent to compromise of an authorization server. Use
 KMS/HSM, least-privilege terminal rules, typed signing inputs, rate limits and
 minimal security-event logs. Never log names, account or credential IDs, keys,
 certificates, signatures, tokens, raw APDUs, plaintext or decrypted objects.
+
+The biometric and possession labels are authenticator-asserted. The bridge
+trusts the registered phone to enforce its selected profile and therefore does
+not emit a hardware-key or attestation claim. A rooted or compromised phone can
+misrepresent local user verification. Deployments that cannot accept that trust
+model need platform attestation or standard FIDO/WebAuthn rather than relabeling
+this protocol.
+
+Registration expiry limits stale database records; it does not prove that a
+phone is still controlled by its original user and is not a substitute for
+revocation. A lost device should be removed through the provider's credential
+management/deletion interface. The 30-day post-expiry cleanup grace is
+operational only and does not permit authentication.

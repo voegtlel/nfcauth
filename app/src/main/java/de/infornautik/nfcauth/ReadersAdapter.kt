@@ -7,6 +7,8 @@ import android.widget.TextView
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
+import java.text.DateFormat
+import java.util.Date
 
 class ReadersAdapter(private val onReaderClick: (ReaderInfo) -> Unit) :
     ListAdapter<ReaderInfo, ReadersAdapter.ReaderViewHolder>(ReaderDiffCallback()) {
@@ -27,10 +29,12 @@ class ReadersAdapter(private val onReaderClick: (ReaderInfo) -> Unit) :
 
         fun bind(reader: ReaderInfo) {
             title.text = reader.serviceName
-            subtitle.text = itemView.context.getString(
-                R.string.service_list_verified,
-                reader.operatorName + " · " + reader.authenticationProfile,
-            )
+            val expiry = DateFormat.getDateInstance().format(Date(reader.registrationExpiresAt))
+            subtitle.text = if (reader.registrationExpiresAt <= System.currentTimeMillis()) {
+                itemView.context.getString(R.string.service_list_expired, reader.operatorName, expiry)
+            } else {
+                itemView.context.getString(R.string.service_list_expires, reader.operatorName, expiry)
+            }
             itemView.setOnClickListener { onReaderClick(reader) }
         }
     }

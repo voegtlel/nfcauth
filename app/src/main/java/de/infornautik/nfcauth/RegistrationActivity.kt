@@ -154,6 +154,9 @@ class RegistrationActivity : AppCompatActivity() {
                     "Identity verified for ${value.verifiedDomain}\n\n" + requested + "\n\n" +
                     "Audiences: ${manifest.allowedAudiences.joinToString()}\n" +
                     "Scopes: ${manifest.allowedScopes.joinToString()}\n\n" +
+                    "Registration lifetime: ${manifest.registrationLifetimeDays} days. " +
+                    "Successful authentication or an explicit renewal extends it. " +
+                    "The app sends no background heartbeat.\n\n" +
                     "Data is encrypted directly to ${manifest.serviceName}. " +
                     "Deletion: ${manifest.deletionUrlOrContact}\nPrivacy: ${manifest.privacyPolicyUrl}",
             )
@@ -257,6 +260,13 @@ class RegistrationActivity : AppCompatActivity() {
                     JSONObject().put("completion_code", code).put("signature", signature),
                 )
                 val manifest = value.manifest
+                require(response.getString("service_id") == manifest.serviceId)
+                require(response.getString("profile") == selectedProfile)
+                require(response.getInt("key_version") == 1)
+                val now = System.currentTimeMillis() / 1000L
+                val expiresAtSeconds = response.getLong("registration_expires_at")
+                require(expiresAtSeconds > now)
+                require(expiresAtSeconds - now <= (manifest.registrationLifetimeDays + 1L) * 86_400L)
                 val record = ReaderInfo(
                     manifest.serviceOrigin,
                     manifest.serviceId,
@@ -275,6 +285,7 @@ class RegistrationActivity : AppCompatActivity() {
                     value.verifiedDomain,
                     value.manifestHash,
                     System.currentTimeMillis(),
+                    expiresAtSeconds * 1000L,
                     manifest.allowedAudiences,
                     manifest.allowedScopes,
                 )

@@ -16,6 +16,31 @@
    provider and identifies the account by immutable `(issuer, sub)`.
 7. The bridge assigns the credential ID. Completion requires a one-use code and
    proof from the new phone key.
+8. The bridge returns the provider-disclosed registration expiry. The phone
+   stores and displays it.
+
+## Registration lifetime and explicit renewal
+
+The example lifetime is 548 days so a person who authenticates roughly once a
+year normally remains registered. Every successfully verified NFC
+authentication resets the server-side expiry to the configured lifetime.
+
+Manual renewal is deliberately user initiated:
+
+1. The phone re-fetches the signed provider manifest over HTTPS, validates the
+   current Web-PKI identity, confirms the manifest and encryption identity are
+   unchanged, and rechecks the privacy-policy URL.
+2. The bridge creates a 120-second, one-use renewal document containing the
+   credential, service, profile, current expiry, proposed expiry and random
+   challenge.
+3. The phone shows the operator and proposed expiry. Only after confirmation
+   does it sign the domain-separated canonical document with the existing
+   service-specific credential key.
+4. The bridge verifies the signature and atomically extends the active
+   registration.
+
+An expired registration cannot be renewed and must be enrolled again through
+the provider login. The app does not run a renewal worker or heartbeat.
 
 ## NFC transport
 
@@ -50,3 +75,15 @@ The bridge atomically consumes the transaction before issuance. Tokens contain
 one audience, the intersection of requested and terminal-allowed scopes, the
 terminal actor, assurance method and transaction ID. The maximum lifetime is
 600 seconds and no refresh token is issued.
+
+After token issuance succeeds, the bridge records the successful
+authentication and extends the active registration lease. The response exposes
+the new expiry to the terminal for operational visibility; it is not an access
+token claim and grants no additional authority.
+
+Because the terminal contacts the bridge after receiving the phone assertion,
+the offline phone cannot know whether token issuance succeeded. It therefore
+does not optimistically extend its local date after NFC. The displayed date is
+the last expiry confirmed during registration or explicit online renewal and
+may be earlier than the bridge's authoritative expiry. Explicit renewal safely
+refreshes it; no authorization decision relies on the phone's local date.

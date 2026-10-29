@@ -30,6 +30,7 @@ class AuthDatabase(context: Context) : SQLiteOpenHelper(context, "auth-v4.db", n
               verified_domain TEXT NOT NULL,
               manifest_hash TEXT NOT NULL,
               approved_at INTEGER NOT NULL,
+              registration_expires_at INTEGER NOT NULL,
               allowed_audiences TEXT NOT NULL,
               allowed_scopes TEXT NOT NULL,
               PRIMARY KEY(service_origin, service_id, authentication_profile)
@@ -74,6 +75,7 @@ class AuthDatabase(context: Context) : SQLiteOpenHelper(context, "auth-v4.db", n
             put("verified_domain", reader.verifiedDomain)
             put("manifest_hash", reader.manifestHash)
             put("approved_at", reader.approvedAt)
+            put("registration_expires_at", reader.registrationExpiresAt)
             put("allowed_audiences", JSONArray(reader.allowedAudiences).toString())
             put("allowed_scopes", JSONArray(reader.allowedScopes).toString())
         }
@@ -88,6 +90,24 @@ class AuthDatabase(context: Context) : SQLiteOpenHelper(context, "auth-v4.db", n
             "service_origin=? AND service_id=? AND authentication_profile=?",
             arrayOf(serviceOrigin, serviceId, profile),
         ) > 0
+
+    fun updateRegistrationExpiration(
+        serviceOrigin: String,
+        serviceId: String,
+        profile: String,
+        expiresAt: Long,
+        certificateFingerprint: String,
+        verifiedDomain: String,
+    ): Boolean = writableDatabase.update(
+        "services",
+        ContentValues().apply {
+            put("registration_expires_at", expiresAt)
+            put("certificate_fingerprint", certificateFingerprint)
+            put("verified_domain", verifiedDomain)
+        },
+        "service_origin=? AND service_id=? AND authentication_profile=?",
+        arrayOf(serviceOrigin, serviceId, profile),
+    ) == 1
 
     private fun Cursor.toReader(): ReaderInfo? = try {
         fun string(name: String) = getString(getColumnIndexOrThrow(name))
@@ -104,6 +124,7 @@ class AuthDatabase(context: Context) : SQLiteOpenHelper(context, "auth-v4.db", n
             string("deletion_contact"), string("encryption_fingerprint"),
             string("certificate_fingerprint"), string("verified_domain"),
             string("manifest_hash"), getLong(getColumnIndexOrThrow("approved_at")),
+            getLong(getColumnIndexOrThrow("registration_expires_at")),
             JSONArray(string("allowed_audiences")).let { values ->
                 (0 until values.length()).map(values::getString)
             },

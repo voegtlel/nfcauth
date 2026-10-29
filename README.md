@@ -25,6 +25,9 @@ subsequent processing of data transferred to it.
   then tap the same terminal again to deliver the in-memory assertion.
 - The bridge consumes each transaction once and issues or exchanges a token
   with a maximum lifetime of 600 seconds. No refresh token is issued.
+- Provider registrations default to an 18-month (548-day) lease. Each verified
+  authentication extends the lease. A user can also explicitly renew with the
+  existing service-specific credential; there is no background heartbeat.
 - Authentication attempts, assertions, NFC session keys and terminal tokens are
   never persisted.
 
@@ -57,6 +60,7 @@ provide PC/SC, USB, serial, vendor-SDK, or entirely custom transports.
 - [Bridge deployment tutorial](docs/bridge-deployment.md)
 - [Optional Authentik integration](docs/authentik-integration.md)
 - [Security model and residual risks](docs/security-model-v4.md)
+- [Google Play privacy and Data safety checklist](docs/google-play-data-safety.md)
 - [App privacy policy](docs/privacy-policy.html)
 
 ## Build and test
@@ -102,9 +106,10 @@ adapter.
 ## Privacy and logging
 
 The phone persists provider disclosure and consent metadata, a provider-assigned
-credential ID, and the Android Keystore alias. Local deletion removes those
-records and keys but does not delete the provider's copy; the app retains the
-provider's deletion URL or contact.
+credential ID, registration expiry, and the Android Keystore alias. Local
+deletion removes those records and keys but does not delete the provider's copy;
+the app retains the provider's deletion URL or contact. The app sends no
+periodic heartbeat or other background provider traffic.
 
 Logs must never contain names, account or credential IDs, service IDs, keys,
 certificates, signatures, tokens, raw APDUs, nonces, plaintext, or decrypted

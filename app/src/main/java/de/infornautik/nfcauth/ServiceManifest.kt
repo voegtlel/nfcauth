@@ -25,6 +25,8 @@ data class ServiceManifest(
     val allowedAudiences: List<String>,
     val allowedScopes: List<String>,
     val registrationEndpoint: String,
+    val renewalEndpoint: String,
+    val registrationLifetimeDays: Int,
     val encryptionPublicKey: String,
     val privacyNoticeMaterialChange: Boolean,
 )
@@ -53,7 +55,10 @@ object ServiceManifestParser {
         val origin = canonicalOrigin(value.getString("service_origin"))
         val policy = httpsUrl(value.getString("privacy_policy_url"))
         val registration = httpsUrl(value.getString("registration_endpoint"))
-        require(URI(registration).host == URI(origin).host)
+        val renewal = httpsUrl(value.getString("renewal_endpoint"))
+        require(URI(registration).host == URI(origin).host && URI(renewal).host == URI(origin).host)
+        val registrationLifetimeDays = value.getInt("registration_lifetime_days")
+        require(registrationLifetimeDays in 365..730)
         val requested = value.getJSONArray("requested_fields").strings()
         require(requested.isNotEmpty() && requested.toSet().size == requested.size && requested.all(fields::contains))
         require(requested.contains(FIELD_AUTHENTICATION_PUBLIC_KEY))
@@ -83,6 +88,8 @@ object ServiceManifestParser {
             audiences.distinct().sorted(),
             scopes.distinct().sorted(),
             registration,
+            renewal,
+            registrationLifetimeDays,
             value.getString("encryption_public_key"),
             value.optBoolean("privacy_notice_material_change", false),
         ).also { parseEncryptionKey(it.encryptionPublicKey) }

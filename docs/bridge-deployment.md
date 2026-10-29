@@ -18,6 +18,14 @@ filesystem and a PostgreSQL enrollment database.
    `deploy/secrets/token-signing-key.pem`.
 6. Configure the environment values used by `docker-compose.yml`.
 
+The manifest's `registration_lifetime_days` must match
+`NFCAUTH_CREDENTIAL_LIFETIME_DAYS` (548 by default). The bridge extends an
+active credential after each verified authentication or explicit renewal. It
+deletes credentials only after expiry plus
+`NFCAUTH_CREDENTIAL_CLEANUP_GRACE_DAYS` (30 by default), checking once per
+`NFCAUTH_CREDENTIAL_CLEANUP_INTERVAL_SECONDS` (one day by default). Phones do
+not ping the bridge in the background.
+
 Start from the checked-in template:
 
 ```shell
@@ -87,6 +95,11 @@ Verify `/health/ready`, fetch and validate the signed well-known document, then
 perform an enrollment before provisioning a terminal. Back up PostgreSQL and
 the enrollment/token-signing keys. Transient authentication requests are not
 recoverable and do not need backup.
+
+Protocol v4 is a new prerelease database schema and provides no migration from
+older prerelease schemas. Recreate the development database/volume before
+deploying this version. Production operators should add schema migration
+management before accepting real enrollments.
 
 For production, replace PEM signing with a `RequestSigner` backed by KMS/HSM,
 apply request rate limits, centralize security events without sensitive fields,

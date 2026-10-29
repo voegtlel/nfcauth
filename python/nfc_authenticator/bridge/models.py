@@ -30,6 +30,10 @@ class Credential:
     service_id: str
     profile: str
     public_key: str
+    registered_at: int
+    expires_at: int
+    last_authenticated_at: int | None = None
+    last_renewed_at: int | None = None
     key_version: int = 1
     revoked: bool = False
 

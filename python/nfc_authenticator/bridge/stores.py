@@ -31,6 +31,31 @@ class MemoryEnrollmentStore:
             self._credentials[credential_id] = Credential(**{**current.__dict__, "revoked": True})
             return True
 
+    async def renew_credential(
+        self,
+        credential_id: str,
+        *,
+        now: int,
+        expires_at: int,
+        authenticated: bool,
+    ) -> Credential | None:
+        async with self._lock:
+            current = self._credentials.get(credential_id)
+            if current is None or current.revoked or current.expires_at <= now:
+                return None
+            values = {**current.__dict__, "expires_at": expires_at}
+            values["last_authenticated_at" if authenticated else "last_renewed_at"] = now
+            renewed = Credential(**values)
+            self._credentials[credential_id] = renewed
+            return renewed
+
+    async def purge_expired_credentials(self, cutoff: int) -> int:
+        async with self._lock:
+            expired = [key for key, value in self._credentials.items() if value.expires_at <= cutoff]
+            for key in expired:
+                del self._credentials[key]
+            return len(expired)
+
 
 class MemoryTransactionStore:
     """One-use transient transaction store with process-local state only."""

@@ -34,25 +34,34 @@ class RegistrationAttempt:
 
 
 class RegistrationAttempts:
-    def __init__(self) -> None:
+    def __init__(self, *, maximum_entries: int = 4096, clock=time.time) -> None:
         self._values: dict[str, RegistrationAttempt] = {}
         self._states: dict[str, str] = {}
         self._lock = asyncio.Lock()
+        self.maximum_entries = maximum_entries
+        self.clock = clock
 
     async def create(self, value: RegistrationAttempt) -> None:
         async with self._lock:
+            self._prune()
+            if len(self._values) >= self.maximum_entries:
+                raise ValueError("Too many registration attempts")
+            if value.registration_id in self._values or value.state in self._states:
+                raise ValueError("Registration attempt already exists")
             self._values[value.registration_id] = value
             self._states[value.state] = value.registration_id
 
     async def by_id(self, registration_id: str) -> RegistrationAttempt:
         async with self._lock:
+            self._prune()
             value = self._values.get(registration_id)
-            if value is None or value.expires_at <= int(time.time()):
+            if value is None:
                 raise ValueError("Registration is unavailable or expired")
             return value
 
     async def by_state(self, state: str) -> RegistrationAttempt:
         async with self._lock:
+            self._prune()
             registration_id = self._states.get(state)
         if registration_id is None:
             raise ValueError("OIDC state is invalid")
@@ -60,11 +69,19 @@ class RegistrationAttempts:
 
     async def consume(self, registration_id: str) -> RegistrationAttempt:
         async with self._lock:
+            self._prune()
             value = self._values.pop(registration_id, None)
-            if value is None or value.expires_at <= int(time.time()):
+            if value is None:
                 raise ValueError("Registration is unavailable or expired")
             self._states.pop(value.state, None)
             return value
+
+    def _prune(self) -> None:
+        now = int(self.clock())
+        expired = [key for key, value in self._values.items() if value.expires_at <= now]
+        for registration_id in expired:
+            value = self._values.pop(registration_id)
+            self._states.pop(value.state, None)
 
 
 class GenericOidcIdentityProvider:
@@ -79,6 +96,7 @@ class GenericOidcIdentityProvider:
         client_secret: str,
         redirect_uri: str,
         timeout_seconds: float = 5.0,
+        allowed_signing_algorithms: tuple[str, ...] = ("RS256", "ES256"),
     ) -> None:
         for endpoint in (issuer, authorization_endpoint, token_endpoint, jwks_uri, redirect_uri):
             if not endpoint.startswith("https://"):
@@ -91,6 +109,9 @@ class GenericOidcIdentityProvider:
         self.client_secret = client_secret
         self.redirect_uri = redirect_uri
         self.timeout_seconds = timeout_seconds
+        if not allowed_signing_algorithms or not set(allowed_signing_algorithms) <= {"RS256", "ES256"}:
+            raise ValueError("OIDC signing algorithms must be an explicit RS256/ES256 allowlist")
+        self.allowed_signing_algorithms = allowed_signing_algorithms
 
     def authorization_url(self, state: str, nonce: str, code_challenge: str) -> str:
         return self.authorization_endpoint + "?" + urlencode(
@@ -124,14 +145,24 @@ class GenericOidcIdentityProvider:
             jwks_response = await client.get(self.jwks_uri, headers={"Accept": "application/json"})
             jwks_response.raise_for_status()
         header = jwt.get_unverified_header(encoded)
-        candidates = [key for key in jwks_response.json()["keys"] if key.get("kid") == header.get("kid")]
+        algorithm = header.get("alg")
+        if algorithm not in self.allowed_signing_algorithms:
+            raise ValueError("OIDC signing algorithm is not allowed")
+        candidates = [
+            key
+            for key in jwks_response.json()["keys"]
+            if key.get("kid") == header.get("kid")
+            and key.get("alg", algorithm) == algorithm
+            and key.get("use", "sig") == "sig"
+            and "verify" in key.get("key_ops", ["verify"])
+        ]
         if len(candidates) != 1:
             raise ValueError("OIDC signing key is unavailable or ambiguous")
         key = jwt.PyJWK.from_dict(candidates[0]).key
         claims = jwt.decode(
             encoded,
             key,
-            algorithms=[header["alg"]],
+            algorithms=[algorithm],
             audience=self.client_id,
             issuer=self.issuer,
             options={"require": ["iss", "sub", "aud", "exp", "iat", "nonce"]},
@@ -142,11 +173,22 @@ class GenericOidcIdentityProvider:
 
 
 class RegistrationCoordinator:
-    def __init__(self, service_id: str, attempts: RegistrationAttempts, enrollments: EnrollmentStore, oidc) -> None:
+    def __init__(
+        self,
+        service_id: str,
+        attempts: RegistrationAttempts,
+        enrollments: EnrollmentStore,
+        oidc,
+        *,
+        credential_lifetime_seconds: int,
+        clock=time.time,
+    ) -> None:
         self.service_id = service_id
         self.attempts = attempts
         self.enrollments = enrollments
         self.oidc = oidc
+        self.credential_lifetime_seconds = credential_lifetime_seconds
+        self.clock = clock
 
     async def start(self, profile: str, public_key: str) -> tuple[RegistrationAttempt, str]:
         if profile not in {"possession", "biometric"}:
@@ -162,7 +204,7 @@ class RegistrationCoordinator:
             verifier,
             profile,
             public_key,
-            int(time.time()) + 300,
+            int(self.clock()) + 300,
         )
         await self.attempts.create(attempt)
         challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
@@ -173,7 +215,7 @@ class RegistrationCoordinator:
         attempt.subject = await self.oidc.complete(code, attempt.nonce, attempt.pkce_verifier)
         attempt.credential_id = secrets.token_urlsafe(24)
         attempt.completion_code = secrets.token_urlsafe(32)
-        attempt.expires_at = int(time.time()) + 60
+        attempt.expires_at = int(self.clock()) + 60
         return attempt
 
     async def complete(self, registration_id: str, completion_code: str, signature: str) -> Credential:
@@ -186,6 +228,7 @@ class RegistrationCoordinator:
         attempt = await self.attempts.consume(registration_id)
         if attempt.subject is None or attempt.credential_id is None:
             raise ValueError("Registration identity has not been established")
+        now = int(self.clock())
         credential = Credential(
             attempt.credential_id,
             attempt.subject.issuer,
@@ -193,6 +236,8 @@ class RegistrationCoordinator:
             self.service_id,
             attempt.profile,
             attempt.public_key,
+            now,
+            now + self.credential_lifetime_seconds,
         )
         await self.enrollments.save_credential(credential)
         return credential

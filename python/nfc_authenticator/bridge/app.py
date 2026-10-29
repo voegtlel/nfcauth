@@ -12,6 +12,7 @@ from nfc_authenticator.protocol_v4 import AuthorizationAssertion, SessionBinding
 
 from .models import TerminalIdentity
 from .registration import RegistrationCoordinator
+from .renewal import RenewalCoordinator
 from .service import BridgeService
 
 
@@ -57,12 +58,23 @@ class RegistrationComplete(BaseModel):
     signature: str
 
 
+class RenewalStart(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    credential_id: str = Field(min_length=16, max_length=255)
+
+
+class RenewalComplete(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    signature: str = Field(min_length=1, max_length=2048)
+
+
 def create_app(
     *,
     service: BridgeService,
     terminals: dict[str, TerminalIdentity],
     manifest: dict[str, Any],
     registrations: RegistrationCoordinator | None = None,
+    renewals: RenewalCoordinator | None = None,
 ) -> FastAPI:
     app = FastAPI(
         title="NFC Auth Provider Bridge",
@@ -134,8 +146,10 @@ def create_app(
         if transaction_id != body.transaction_id:
             raise HTTPException(400, "Transaction ID does not match request body")
         try:
-            token = await service.complete(transaction_id, identity, AuthorizationAssertion(**body.model_dump()))
-            return asdict(token)
+            token, registration_expires_at = await service.complete(
+                transaction_id, identity, AuthorizationAssertion(**body.model_dump())
+            )
+            return {**asdict(token), "registration_expires_at": registration_expires_at}
         except PermissionError as error:
             raise HTTPException(403, str(error)) from error
         except (ValueError, TypeError) as error:
@@ -195,8 +209,33 @@ def create_app(
                 "service_id": credential.service_id,
                 "profile": credential.profile,
                 "key_version": credential.key_version,
+                "registration_expires_at": credential.expires_at,
             }
         except (ValueError, TypeError) as error:
             raise HTTPException(400, "Registration completion failed") from error
+
+    @app.post("/v1/registration-renewals", status_code=201)
+    async def start_renewal(body: RenewalStart) -> dict:
+        if renewals is None:
+            raise HTTPException(503, "Registration renewal is not configured")
+        try:
+            attempt = await renewals.start(body.credential_id)
+            return {"renewal": attempt.document()}
+        except ValueError as error:
+            raise HTTPException(404, "Registration is unavailable or expired") from error
+
+    @app.post("/v1/registration-renewals/{renewal_id}/complete")
+    async def complete_renewal(renewal_id: str, body: RenewalComplete) -> dict:
+        if renewals is None:
+            raise HTTPException(503, "Registration renewal is not configured")
+        try:
+            credential = await renewals.complete(renewal_id, body.signature)
+            return {
+                "credential_id": credential.credential_id,
+                "registration_expires_at": credential.expires_at,
+                "renewed_at": credential.last_renewed_at,
+            }
+        except (ValueError, TypeError) as error:
+            raise HTTPException(400, "Registration renewal failed") from error
 
     return app

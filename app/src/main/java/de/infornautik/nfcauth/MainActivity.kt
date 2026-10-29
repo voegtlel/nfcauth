@@ -149,6 +149,17 @@ class MainActivity : AppCompatActivity() {
                     DateFormat.getDateTimeInstance().format(Date(service.approvedAt)),
                 ),
             )
+            append("\n")
+            append(
+                getString(
+                    if (service.registrationExpiresAt <= System.currentTimeMillis()) {
+                        R.string.service_details_expired
+                    } else {
+                        R.string.service_details_expires
+                    },
+                    DateFormat.getDateTimeInstance().format(Date(service.registrationExpiresAt)),
+                ),
+            )
             append("\n\n")
             append(getString(R.string.service_details_data_heading))
             service.requestedFields.forEach { field ->
@@ -177,6 +188,14 @@ class MainActivity : AppCompatActivity() {
             .setTitle(service.serviceName)
             .setMessage(details)
             .setPositiveButton(R.string.dialog_button_close, null)
+            .setNeutralButton(R.string.renew_registration_action) { _, _ ->
+                startActivity(
+                    Intent(this, RenewalActivity::class.java)
+                        .putExtra(RenewalActivity.EXTRA_ORIGIN, service.serviceOrigin)
+                        .putExtra(RenewalActivity.EXTRA_SERVICE_ID, service.serviceId)
+                        .putExtra(RenewalActivity.EXTRA_PROFILE, service.authenticationProfile),
+                )
+            }
             .setNegativeButton(R.string.delete_local_registration) { _, _ ->
                 confirmLocalDeletion(service)
             }

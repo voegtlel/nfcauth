@@ -17,5 +17,7 @@
   "allowed_audiences": ["inventory-api"],
   "allowed_scopes": ["inventory.read"],
   "registration_endpoint": "https://auth.example.com/v1/registrations",
+  "renewal_endpoint": "https://auth.example.com/v1/registration-renewals",
+  "registration_lifetime_days": 548,
   "encryption_public_key": "REPLACE_WITH_BASE64_DER_P256_PUBLIC_KEY"
 }
