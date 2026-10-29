@@ -187,6 +187,7 @@ class PlayStoreScreenshotTest {
                         verifiedDomain = "voegtlel.github.io",
                         manifestHash = EXAMPLE_MANIFEST_HASH,
                         approvedAt = EXAMPLE_APPROVAL_TIME,
+                        registrationExpiresAt = EXAMPLE_REGISTRATION_EXPIRY,
                         allowedAudiences = listOf("https://api.example.com"),
                         allowedScopes = listOf("openid", "profile"),
                     ),
@@ -217,6 +218,8 @@ class PlayStoreScreenshotTest {
             allowedAudiences = listOf("https://api.example.com"),
             allowedScopes = listOf("openid", "profile"),
             registrationEndpoint = "https://voegtlel.github.io/v1/registrations",
+            renewalEndpoint = "https://voegtlel.github.io/v1/registrations/renew",
+            registrationLifetimeDays = REGISTRATION_LIFETIME_DAYS,
             encryptionPublicKey = encryptionKeyPair.public.encoded.toBase64(),
             privacyNoticeMaterialChange = false,
         )
@@ -235,6 +238,8 @@ class PlayStoreScreenshotTest {
             put("allowed_audiences", JSONArray(manifest.allowedAudiences))
             put("allowed_scopes", JSONArray(manifest.allowedScopes))
             put("registration_endpoint", manifest.registrationEndpoint)
+            put("renewal_endpoint", manifest.renewalEndpoint)
+            put("registration_lifetime_days", manifest.registrationLifetimeDays)
             put("encryption_public_key", manifest.encryptionPublicKey)
             put("privacy_notice_material_change", manifest.privacyNoticeMaterialChange)
         }.toString()
@@ -249,6 +254,9 @@ class PlayStoreScreenshotTest {
         private const val POLICY_TIMEOUT_MS = 15_000L
         private const val LAYOUT_TIMEOUT_MS = 3_000L
         private const val EXAMPLE_APPROVAL_TIME = 1_785_283_200_000L
+        private const val REGISTRATION_LIFETIME_DAYS = 365
+        private const val EXAMPLE_REGISTRATION_EXPIRY =
+            EXAMPLE_APPROVAL_TIME + REGISTRATION_LIFETIME_DAYS * 24L * 60L * 60L * 1_000L
         private const val EXAMPLE_ENCRYPTION_FINGERPRINT =
             "48d7af09786b935482e8be7444f2c5fd9f85164876744f554ef59f74d6616d31"
         private const val EXAMPLE_SIGNING_FINGERPRINT =
