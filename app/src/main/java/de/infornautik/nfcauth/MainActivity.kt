@@ -8,6 +8,7 @@ import android.text.Spanned
 import android.text.method.LinkMovementMethod
 import android.text.style.URLSpan
 import android.widget.Button
+import android.widget.EditText
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
@@ -24,7 +25,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var authDatabase: AuthDatabase
     private lateinit var keyManager: KeyManager
     private lateinit var statusText: TextView
-    private lateinit var readersAdapter: ReadersAdapter
+    private lateinit var registrationsAdapter: ServiceRegistrationsAdapter
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -35,20 +36,21 @@ class MainActivity : AppCompatActivity() {
         authDatabase = AuthDatabase(this)
         keyManager = KeyManager(this)
 
-        readersAdapter = ReadersAdapter(::showServiceDetails)
-        findViewById<RecyclerView>(R.id.readersRecyclerView).apply {
+        registrationsAdapter = ServiceRegistrationsAdapter(::showServiceDetails)
+        findViewById<RecyclerView>(R.id.registrationsRecyclerView).apply {
             layoutManager = LinearLayoutManager(this@MainActivity)
-            adapter = readersAdapter
+            adapter = registrationsAdapter
         }
         val swipeRefresh = findViewById<SwipeRefreshLayout>(R.id.swipeRefresh)
         swipeRefresh.setOnRefreshListener {
-            loadReaders()
+            loadRegistrations()
             swipeRefresh.isRefreshing = false
         }
         findViewById<Button>(R.id.infoButton).setOnClickListener {
             startActivity(Intent(this, AppPrivacyPolicyActivity::class.java))
         }
-        loadReaders()
+        findViewById<Button>(R.id.registerProviderButton).setOnClickListener { showProviderEntry() }
+        loadRegistrations()
     }
 
     private fun applySystemBarInsets() {
@@ -88,7 +90,30 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
-        if (::authDatabase.isInitialized) loadReaders()
+        if (::authDatabase.isInitialized) loadRegistrations()
+        val pending = PendingAuthorizationStore.get()
+        if (pending != null && pending.assertion == null) {
+            startActivity(Intent(this, BiometricPromptActivity::class.java))
+        }
+    }
+
+    private fun showProviderEntry() {
+        val input = EditText(this).apply {
+            hint = "https://auth.example.com"
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_URI
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Register with provider")
+            .setMessage("Enter the provider's HTTPS origin. You will review its identity, requested data, and privacy information before anything is registered.")
+            .setView(input)
+            .setNegativeButton(R.string.dialog_button_cancel, null)
+            .setPositiveButton("Continue") { _, _ ->
+                startActivity(
+                    Intent(this, RegistrationActivity::class.java)
+                        .putExtra(RegistrationActivity.EXTRA_ORIGIN, input.text.toString()),
+                )
+            }
+            .show()
     }
 
     override fun onDestroy() {
@@ -96,27 +121,25 @@ class MainActivity : AppCompatActivity() {
         super.onDestroy()
     }
 
-    private fun loadReaders() {
-        val readers = authDatabase.getAllReaders()
-        readersAdapter.submitList(readers)
+    private fun loadRegistrations() {
+        val registrations = authDatabase.getAllRegistrations()
+        registrationsAdapter.submitList(registrations)
         statusText.text = resources.getQuantityString(
             R.plurals.registered_service_count,
-            readers.size,
-            readers.size,
+            registrations.size,
+            registrations.size,
         )
     }
 
-    private fun showServiceDetails(service: ReaderInfo) {
+    private fun showServiceDetails(service: ServiceRegistration) {
         val details = SpannableStringBuilder().apply {
             append(getString(R.string.service_details_operator, service.operatorName))
             append("\n")
-            append(
-                if (service.identityVerified) {
-                    getString(R.string.service_details_verified)
-                } else {
-                    getString(R.string.service_details_unverified)
-                },
-            )
+            append(getString(R.string.service_details_verified))
+            append(" ")
+            append(service.verifiedDomain)
+            append("\n")
+            append(service.authenticationProfile)
             append("\n")
             append(getString(R.string.service_details_notice, service.privacyNoticeVersion))
             append("\n")
@@ -124,6 +147,17 @@ class MainActivity : AppCompatActivity() {
                 getString(
                     R.string.service_details_approved,
                     DateFormat.getDateTimeInstance().format(Date(service.approvedAt)),
+                ),
+            )
+            append("\n")
+            append(
+                getString(
+                    if (service.registrationExpiresAt <= System.currentTimeMillis()) {
+                        R.string.service_details_expired
+                    } else {
+                        R.string.service_details_expires
+                    },
+                    DateFormat.getDateTimeInstance().format(Date(service.registrationExpiresAt)),
                 ),
             )
             append("\n\n")
@@ -134,10 +168,6 @@ class MainActivity : AppCompatActivity() {
                 append(": ")
                 append(service.purposes[field].orEmpty())
             }
-            append("\n\n")
-            append(getString(R.string.service_details_encryption_fingerprint))
-            append("\n")
-            append(service.encryptionKeyFingerprint)
             append("\n\n")
             appendLink(
                 getString(R.string.registration_view_privacy_policy),
@@ -154,6 +184,14 @@ class MainActivity : AppCompatActivity() {
             .setTitle(service.serviceName)
             .setMessage(details)
             .setPositiveButton(R.string.dialog_button_close, null)
+            .setNeutralButton(R.string.renew_registration_action) { _, _ ->
+                startActivity(
+                    Intent(this, RenewalActivity::class.java)
+                        .putExtra(RenewalActivity.EXTRA_ORIGIN, service.serviceOrigin)
+                        .putExtra(RenewalActivity.EXTRA_SERVICE_ID, service.serviceId)
+                        .putExtra(RenewalActivity.EXTRA_PROFILE, service.authenticationProfile),
+                )
+            }
             .setNegativeButton(R.string.delete_local_registration) { _, _ ->
                 confirmLocalDeletion(service)
             }
@@ -165,7 +203,7 @@ class MainActivity : AppCompatActivity() {
         dialog.show()
     }
 
-    private fun confirmLocalDeletion(service: ReaderInfo) {
+    private fun confirmLocalDeletion(service: ServiceRegistration) {
         AlertDialog.Builder(this)
             .setTitle(R.string.delete_local_registration_title)
             .setMessage(
@@ -181,11 +219,21 @@ class MainActivity : AppCompatActivity() {
             .show()
     }
 
-    private fun deleteLocalRegistration(service: ReaderInfo) {
+    private fun deleteLocalRegistration(service: ServiceRegistration) {
         try {
-            keyManager.deleteServiceCredentials(service.serviceId)
-            authDatabase.deleteReader(service.serviceId)
-            loadReaders()
+            check(
+                authDatabase.deleteRegistration(
+                    service.serviceOrigin,
+                    service.serviceId,
+                    service.authenticationProfile,
+                ),
+            )
+            keyManager.deleteServiceCredentials(
+                service.serviceOrigin,
+                service.serviceId,
+                service.authenticationProfile,
+            )
+            loadRegistrations()
             Toast.makeText(
                 this,
                 R.string.delete_local_registration_success,
@@ -207,5 +255,5 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun deletionUri(value: String): String =
-        if (value.contains("@") && !value.startsWith("mailto:")) "mailto:$value" else value
+        if (value.contains("@") && !value.startsWith("mailto:", ignoreCase = true)) "mailto:$value" else value
 }

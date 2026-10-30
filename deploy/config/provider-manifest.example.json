@@ -1,0 +1,21 @@
+{
+  "protocol_version": 4,
+  "service_origin": "https://auth.example.com",
+  "service_id": "example-provider",
+  "service_name": "Example Provider",
+  "operator_name": "Example Operator GmbH",
+  "privacy_policy_url": "https://auth.example.com/privacy",
+  "privacy_notice_version": "1",
+  "requested_fields": ["authentication_public_key", "provider_assigned_credential_id"],
+  "purposes": {
+    "authentication_public_key": "Verify approvals made by this phone",
+    "provider_assigned_credential_id": "Associate the credential with your provider account"
+  },
+  "data_deletion_url_or_contact": "https://auth.example.com/account/credentials",
+  "supported_assurance_profiles": ["possession", "biometric"],
+  "allowed_audiences": ["inventory-api"],
+  "allowed_scopes": ["inventory.read"],
+  "registration_endpoint": "https://auth.example.com/v1/registrations",
+  "renewal_endpoint": "https://auth.example.com/v1/registration-renewals",
+  "registration_lifetime_days": 548
+}

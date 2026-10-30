@@ -24,13 +24,39 @@ jobs:
         python-version: '3.11'
         cache: 'pip'
 
-    - name: Install dependencies
+    - name: Install locked dependencies
       run: |
-        python -m pip install --upgrade pip
-        python -m pip install build
+        python -m pip install 'uv==0.13.5'
+        uv sync --frozen --extra dev
+
+    - name: Check protocol, terminal, and transport type annotations
+      run: >-
+        uv run mypy --strict --follow-imports=silent
+        nfc_authenticator/protocol_v4.py nfc_authenticator/terminal.py
+        nfc_authenticator/terminal_transport.py
+        nfc_authenticator/bridge/terminal_auth.py
+
+    - name: Lint
+      run: uv run ruff check . ../examples/terminal
+
+    - name: Test protocol, bridge, registration, and token issuance
+      run: uv run pytest -q
 
     - name: Build package
-      run: python -m build
+      run: uv build
+
+    - name: Build bridge container
+      working-directory: ${{ github.workspace }}
+      run: docker build --file python/Dockerfile python
+
+    - name: Validate Compose deployment options
+      working-directory: ${{ github.workspace }}
+      run: |
+        docker compose --env-file deploy/.env.example \
+          -f deploy/docker-compose.yml config -q
+        docker compose --env-file deploy/.env.example \
+          -f deploy/docker-compose.yml \
+          -f deploy/docker-compose.authentik.yml config -q
 
     - name: Upload Python package
       uses: actions/upload-artifact@v7

@@ -1,0 +1,85 @@
+services:
+  bridge:
+    image: ${NFCAUTH_BRIDGE_IMAGE:-nfcauth-bridge:4.0.0}
+    build:
+      context: ../python
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,noexec,nosuid
+    environment:
+      NFCAUTH_BRIDGE_SERVICE_ID: ${NFCAUTH_SERVICE_ID}
+      NFCAUTH_BRIDGE_SERVICE_ORIGIN: ${NFCAUTH_SERVICE_ORIGIN}
+      NFCAUTH_BRIDGE_MANIFEST_PATH: /run/config/provider-manifest.json
+      NFCAUTH_BRIDGE_REQUEST_SIGNING_KEY_PATH: /run/secrets/provider-signing-key.pem
+      NFCAUTH_BRIDGE_CERTIFICATE_CHAIN_PATH: /run/config/provider-certificate-chain.pem
+      NFCAUTH_BRIDGE_TOKEN_SIGNING_KEY_PATH: /run/secrets/token-signing-key.pem
+      NFCAUTH_BRIDGE_TERMINAL_REGISTRY_PATH: /run/config/terminals.json
+      NFCAUTH_BRIDGE_DATABASE_URL: postgresql+asyncpg://nfcauth:${POSTGRES_PASSWORD}@postgres/nfcauth
+      NFCAUTH_BRIDGE_CREDENTIAL_LIFETIME_DAYS: ${NFCAUTH_CREDENTIAL_LIFETIME_DAYS:-548}
+      NFCAUTH_BRIDGE_CREDENTIAL_CLEANUP_GRACE_DAYS: ${NFCAUTH_CREDENTIAL_CLEANUP_GRACE_DAYS:-30}
+      NFCAUTH_BRIDGE_CREDENTIAL_CLEANUP_INTERVAL_SECONDS: ${NFCAUTH_CREDENTIAL_CLEANUP_INTERVAL_SECONDS:-86400}
+      NFCAUTH_BRIDGE_OIDC_ISSUER: ${OIDC_ISSUER}
+      NFCAUTH_BRIDGE_OIDC_AUTHORIZATION_ENDPOINT: ${OIDC_AUTHORIZATION_ENDPOINT}
+      NFCAUTH_BRIDGE_OIDC_TOKEN_ENDPOINT: ${OIDC_TOKEN_ENDPOINT}
+      NFCAUTH_BRIDGE_OIDC_JWKS_URI: ${OIDC_JWKS_URI}
+      NFCAUTH_BRIDGE_OIDC_CLIENT_ID: ${OIDC_CLIENT_ID}
+      NFCAUTH_BRIDGE_OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET}
+      NFCAUTH_BRIDGE_OIDC_REDIRECT_URI: ${NFCAUTH_SERVICE_ORIGIN}/v1/oidc/callback
+      NFCAUTH_BRIDGE_TERMINAL_OIDC_ISSUER: ${TERMINAL_OIDC_ISSUER}
+      NFCAUTH_BRIDGE_TERMINAL_OIDC_AUDIENCE: ${TERMINAL_OIDC_AUDIENCE}
+      NFCAUTH_BRIDGE_TERMINAL_OIDC_JWKS_URI: ${TERMINAL_OIDC_JWKS_URI}
+      NFCAUTH_BRIDGE_TERMINAL_REQUIRED_SCOPE: ${TERMINAL_REQUIRED_SCOPE:-nfcauth:terminal}
+      NFCAUTH_BRIDGE_TERMINAL_TOKEN_MAX_LIFETIME_SECONDS: ${TERMINAL_TOKEN_MAX_LIFETIME_SECONDS:-600}
+      NFCAUTH_BRIDGE_TOKEN_EXCHANGE_ENDPOINT: ${TOKEN_EXCHANGE_ENDPOINT:-}
+      NFCAUTH_BRIDGE_TOKEN_EXCHANGE_CLIENT_ID: ${TOKEN_EXCHANGE_CLIENT_ID:-}
+      NFCAUTH_BRIDGE_TOKEN_EXCHANGE_CLIENT_SECRET: ${TOKEN_EXCHANGE_CLIENT_SECRET:-}
+    volumes:
+      - ./config:/run/config:ro
+      - ./secrets:/run/secrets:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    # backend reaches only PostgreSQL and Caddy. egress is attached only to the
+    # bridge so OIDC and optional token-exchange HTTPS calls can reach Authentik.
+    networks: [backend, egress]
+
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: nfcauth
+      POSTGRES_USER: nfcauth
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - bridge-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nfcauth -d nfcauth"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [backend]
+
+  caddy:
+    image: caddy:2.10-alpine
+    restart: unless-stopped
+    ports:
+      - "443:443"
+    environment:
+      NFCAUTH_PUBLIC_HOSTNAME: ${NFCAUTH_PUBLIC_HOSTNAME}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./config/provider-certificate-chain.pem:/etc/nfcauth/provider-certificate-chain.pem:ro
+      - ./secrets/provider-signing-key.pem:/etc/nfcauth/provider-signing-key.pem:ro
+      - caddy-data:/data
+    depends_on: [bridge]
+    networks: [backend]
+
+networks:
+  backend:
+    internal: true
+  egress:
+
+volumes:
+  bridge-db:
+  caddy-data:

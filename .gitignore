@@ -4,6 +4,12 @@
 .DS_Store
 .venv
 .env
+/deploy/.env
+/deploy/secrets/
+/deploy/pki/
+/deploy/config/provider-manifest.json
+/deploy/config/provider-certificate-chain.pem
+/deploy/config/terminals.json
 .nfc_auth_service_identity.json
 auth.db
 .local-signing/

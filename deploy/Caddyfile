@@ -1,0 +1,6 @@
+{$NFCAUTH_PUBLIC_HOSTNAME} {
+    # Access logging is deliberately disabled: OIDC callback queries contain secrets.
+    tls /etc/nfcauth/provider-certificate-chain.pem /etc/nfcauth/provider-signing-key.pem
+    encode zstd gzip
+    reverse_proxy bridge:8080
+}
