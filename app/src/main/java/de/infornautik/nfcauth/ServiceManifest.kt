@@ -94,7 +94,7 @@ object ServiceManifestParser {
             value.getString("privacy_notice_version").also { require(it.isNotBlank()) },
             requested,
             purposes,
-            deletionUrlOrContact(value.getString("data_deletion_url_or_contact")),
+            validateDeletionUrlOrContact(value.getString("data_deletion_url_or_contact")),
             supportedProfiles,
             audiences.distinct().sorted(),
             scopes.distinct().sorted(),
@@ -140,7 +140,7 @@ object ServiceManifestParser {
         return value
     }
 
-    private fun deletionUrlOrContact(value: String): String {
+    internal fun validateDeletionUrlOrContact(value: String): String {
         require(value == value.trim() && value.length in 1..2048)
         val address = when {
             EMAIL_ADDRESS.matches(value) -> value
