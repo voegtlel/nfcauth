@@ -104,6 +104,7 @@ def app_from_environment() -> FastAPI:
         async def cleanup() -> None:
             while True:
                 try:
+                    await transactions.prune_expired()
                     await enrollments.purge_expired_credentials(int(time.time()) - grace_seconds)
                 except Exception:
                     logger.exception("Credential cleanup failed")

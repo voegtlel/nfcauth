@@ -9,6 +9,7 @@ import httpx
 import jwt
 import pytest
 from cryptography import x509
+from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
@@ -116,6 +117,11 @@ async def test_two_tap_authorization_issues_one_ten_minute_token(tmp_path) -> No
         "biometric",
         int(clock()),
     ).with_signature(phone_key)
+
+    wrong_key = ec.generate_private_key(ec.SECP256R1())
+    wrong_assertion = assertion.with_signature(wrong_key)
+    with pytest.raises(InvalidSignature):
+        wrong_assertion.verify(credential.public_key, request, now=int(clock()))
 
     delivery = await service.bind_delivery_session(transaction.transaction_id, terminal, session(b"c"))
     assert delivery["message_type"] == "assertion_delivery"
@@ -340,6 +346,10 @@ async def test_provider_assigns_credential_id_and_completion_requires_phone_key(
     assert completed.completion_code
     payload = REGISTRATION_DOMAIN + completed.registration_id.encode() + b"\x00" + completed.completion_code.encode()
     signature = base64.b64encode(key.sign(payload, ec.ECDSA(hashes.SHA256()))).decode()
+    wrong_key = ec.generate_private_key(ec.SECP256R1())
+    wrong_signature = base64.b64encode(wrong_key.sign(payload, ec.ECDSA(hashes.SHA256()))).decode()
+    with pytest.raises(InvalidSignature):
+        await coordinator.complete(completed.registration_id, completed.completion_code, wrong_signature)
     credential = await coordinator.complete(completed.registration_id, completed.completion_code, signature)
     assert credential.credential_id == completed.credential_id
     assert credential.subject == "provider-account-42"
@@ -374,6 +384,10 @@ async def test_manual_renewal_uses_existing_key_and_is_one_use() -> None:
 
     attempt = await renewals.start(credential.credential_id)
     signature = base64.b64encode(key.sign(attempt.payload(), ec.ECDSA(hashes.SHA256()))).decode()
+    wrong_key = ec.generate_private_key(ec.SECP256R1())
+    wrong_signature = base64.b64encode(wrong_key.sign(attempt.payload(), ec.ECDSA(hashes.SHA256()))).decode()
+    with pytest.raises(InvalidSignature):
+        await renewals.complete(attempt.renewal_id, wrong_signature)
     renewed = await renewals.complete(attempt.renewal_id, signature)
 
     assert renewed.expires_at == now + 548 * 86_400

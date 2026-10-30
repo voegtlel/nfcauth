@@ -111,3 +111,16 @@ management before accepting real enrollments.
 For production, replace PEM signing with a `RequestSigner` backed by KMS/HSM,
 apply request rate limits, centralize security events without sensitive fields,
 and alert on repeated terminal authentication or assertion failures.
+
+Authentication transactions stay in memory, with a global capacity of 4096 and
+a per-terminal capacity of 64. Every store operation prunes expired entries;
+the background cleanup loop also prunes them during idle periods. Capacity
+checks and one-use consumption are protected by the store lock. These limits
+bound memory use; proxy request-rate and request-body limits are still required.
+
+The included bridge and Caddy configurations leave access logging disabled.
+Keep OIDC callback query strings (`code` and `state`), redirect `Location` headers,
+Authorization headers and request/response bodies out of logs. Apply the same
+rule to separately deployed Traefik, load balancers, tracing and error-reporting
+systems. If access logs are needed, log only explicitly allowlisted non-sensitive
+fields, such as route templates and status codes, never the raw request URI.

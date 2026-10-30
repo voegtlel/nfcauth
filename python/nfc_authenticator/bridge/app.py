@@ -4,6 +4,7 @@ from dataclasses import asdict
 from typing import Any
 
 import httpx
+from cryptography.exceptions import InvalidSignature
 from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.responses import RedirectResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -155,6 +156,8 @@ def create_app(
                 transaction_id, identity, AuthorizationAssertion(**body.model_dump())
             )
             return {**asdict(token), "registration_expires_at": registration_expires_at}
+        except InvalidSignature as error:
+            raise HTTPException(403, "Invalid authorization signature") from error
         except PermissionError as error:
             raise HTTPException(403, str(error)) from error
         except (ValueError, TypeError) as error:
@@ -215,6 +218,8 @@ def create_app(
                 "profile": credential.profile,
                 "registration_expires_at": credential.expires_at,
             }
+        except InvalidSignature as error:
+            raise HTTPException(400, "Invalid registration signature") from error
         except (ValueError, TypeError) as error:
             raise HTTPException(400, "Registration completion failed") from error
 
@@ -239,6 +244,8 @@ def create_app(
                 "registration_expires_at": credential.expires_at,
                 "renewed_at": credential.last_renewed_at,
             }
+        except InvalidSignature as error:
+            raise HTTPException(400, "Invalid renewal signature") from error
         except (ValueError, TypeError) as error:
             raise HTTPException(400, "Registration renewal failed") from error
 
