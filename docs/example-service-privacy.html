@@ -31,9 +31,11 @@
       phone and the example does not request an alias or any other field.</p>
 
     <h2>Storage and transfer</h2>
-    <p>Registration and authentication payloads are authenticated and encrypted
-      directly between the phone and this example provider. The provider bridge
-      stores the OIDC issuer and subject, opaque credential reference, public
+    <p>Online registration and renewal use HTTPS with this example provider.
+      During NFC use, authenticated application-layer encryption protects the
+      phone-to-terminal hop and the terminal submits the signed approval to the
+      bridge over HTTPS. The provider bridge stores the OIDC issuer and subject,
+      opaque credential reference, public
       authentication key, profile, registration/expiration timestamps, and last
       verified authentication or explicit renewal time in PostgreSQL. It stores
       no access tokens, refresh tokens, NFC session keys, or authentication

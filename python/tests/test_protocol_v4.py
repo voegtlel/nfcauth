@@ -114,7 +114,6 @@ async def test_two_tap_authorization_issues_one_ten_minute_token(tmp_path) -> No
         terminal.terminal_id,
         credential.credential_id,
         "biometric",
-        1,
         int(clock()),
     ).with_signature(phone_key)
 
@@ -280,7 +279,7 @@ async def test_oidc_terminal_authenticator_validates_token_and_derives_subject_i
     await client.aclose()
 
 
-def test_terminal_registry_rejects_legacy_certificate_identity_and_duplicate_subjects(tmp_path) -> None:
+def test_terminal_registry_rejects_certificate_identity_and_duplicate_subjects(tmp_path) -> None:
     path = tmp_path / "terminals.json"
     path.write_text(
         json.dumps(

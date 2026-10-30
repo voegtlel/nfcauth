@@ -33,7 +33,6 @@ class Credential:
     expires_at: int
     last_authenticated_at: int | None = None
     last_renewed_at: int | None = None
-    key_version: int = 1
     revoked: bool = False
 
 

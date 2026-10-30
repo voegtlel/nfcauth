@@ -113,7 +113,6 @@ class AuthorizationAssertion:
     terminal_id: str
     credential_id: str
     assurance: str
-    key_version: int
     approved_at: int
     signature: str = ""
     protocol_version: int = PROTOCOL_VERSION
@@ -141,7 +140,7 @@ class AuthorizationAssertion:
             or self.assurance != request.assurance
         ):
             raise ValueError("Assertion context does not match")
-        if self.key_version < 1 or not self.credential_id or abs(current - self.approved_at) > 120:
+        if not self.credential_id or abs(current - self.approved_at) > 120:
             raise ValueError("Assertion is invalid or expired")
         public_key = serialization.load_der_public_key(base64.b64decode(public_key_der_b64, validate=True))
         if not isinstance(public_key, ec.EllipticCurvePublicKey) or not isinstance(public_key.curve, ec.SECP256R1):

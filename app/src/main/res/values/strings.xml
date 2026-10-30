@@ -1,56 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">NFC MFC Authenticator</string>
-    <string name="auth_status">Hold phone near NFC reader to authenticate</string>
-    <string name="auth_success">Authentication successful!</string>
-    <string name="auth_failed">Authentication failed</string>
-    <string name="nfc_not_available">NFC is not available on this device</string>
-    <string name="biometric_prompt_title">Confirm Authentication</string>
-    <string name="biometric_prompt_subtitle">Please authenticate to confirm your identity</string>
-    <string name="service_name">NFC MFC Authentication Service</string>
-    <string name="no_readers_registered">No services registered. Start registration at a compatible NFC service.</string>
+    <string name="app_name">NFC Authenticator</string>
+    <string name="no_services_registered">No services registered. Start registration at a compatible NFC service.</string>
 
-    <string name="unlock_device_title">Unlock Device</string>
-    <string name="unlock_device_message">Please unlock your device and hold it at the reader again</string>
-    <string name="hold_device_title">Hold Device</string>
-    <string name="hold_device_message">Please hold your device at the reader again to complete biometric authentication</string>
-    <string name="dialog_button_ok">OK</string>
     <string name="dialog_button_cancel">Cancel</string>
     <string name="dialog_button_close">Close</string>
 
-    <string name="registration_title">Register with %1$s?</string>
-    <string name="registration_recipient">Recipient: %1$s\nOperator: %2$s\nService ID: %3$s\nPrivacy notice: %4$s</string>
-    <string name="registration_identity_verified">Verified service identity\nSigning-key fingerprint: %1$s</string>
-    <string name="registration_identity_unverified">Unverified service identity. The manifest signature is valid, but the app developer has not verified who controls this signing key. Continue only if you recognize the service.\nSigning-key fingerprint: %1$s</string>
-    <string name="registration_requested_data_heading">This service requests exactly:</string>
-    <string name="registration_reconfirmation_reason">New confirmation is required because: %1$s.</string>
-    <string name="registration_alias_hint">Alias for this service</string>
-    <string name="registration_alias_error">Enter an alias to share with this service.</string>
     <string name="registration_view_privacy_policy">View privacy policy</string>
     <string name="registration_view_deletion_instructions">View deletion instructions</string>
-    <string name="registration_policy_checking">Checking that the HTTPS privacy policy is accessible…</string>
-    <string name="registration_policy_accessible">Privacy policy is accessible. Agreeing authorizes only the transfer listed above.</string>
-    <string name="registration_policy_inaccessible">Registration refused: the service privacy policy is not accessible over HTTPS.</string>
-    <string name="registration_button_agree">Agree and register</string>
-    <string name="registration_button_cancel">Cancel registration</string>
-    <string name="registration_button_close">Close</string>
-    <string name="registration_waiting_message">Approved. Hold the phone to the same reader again to send the encrypted registration and receive its authenticated acknowledgement.</string>
-    <string name="registration_success">Registration complete</string>
-    <string name="registration_success_detail">The service registration and service-specific keys are now stored locally. You can review the service policy or delete the local registration from the main screen.</string>
-    <string name="registration_refused">Registration refused</string>
-    <string name="registration_invalid_manifest">The service registration manifest is invalid.</string>
-    <string name="registration_secure_transfer_failed">The secure registration payload could not be prepared. No data was transmitted.</string>
-    <string name="registration_link_open_failed">No app is available to open this link.</string>
 
     <plurals name="registered_service_count">
         <item quantity="one">%d service registered</item>
         <item quantity="other">%d services registered</item>
     </plurals>
-    <string name="service_list_verified">%1$s · Verified identity</string>
-    <string name="service_list_unverified">%1$s · Unverified identity</string>
     <string name="service_details_operator">Operator: %1$s</string>
     <string name="service_details_verified">Identity status: Verified</string>
-    <string name="service_details_unverified">Identity status: Unverified</string>
     <string name="service_details_notice">Privacy notice version: %1$s</string>
     <string name="service_details_approved">Approved: %1$s</string>
     <string name="service_details_expires">Last confirmed registration expiry: %1$s. The provider extends its server-side expiry after successful authentication; explicit renewal refreshes this local date.</string>
@@ -70,5 +34,5 @@
     <string name="renew_registration_success">Registration renewed.</string>
 
     <string name="app_privacy_policy_title">App privacy policy</string>
-    <string name="app_privacy_policy_text">NFC Authenticator Privacy Policy\n\nEffective: October 30, 2026\nDeveloper: Lukas Voegtle\n\nOverview\n\nThe developer operates no authentication backend and receives no registration or authentication data. The app has no advertising, analytics, or tracking SDK. Transfers occur only when the user deliberately registers with a provider, explicitly renews a registration, or presents the phone to an NFC terminal. The app sends no background heartbeat and does not periodically contact providers.\n\nData stored locally\n\nFor each approved service and authentication profile, the app stores the service domain and disclosure metadata, approved fields and purposes, policy and deletion links, provider certificate fingerprint, approval and last-confirmed expiration times, a provider-issued opaque credential reference, and profile-specific credentials. Signing keys are not reused across services or profiles. Authentication attempts, assertions, NFC session keys, and access tokens are kept only in memory.\n\nTransfers\n\nBefore registration, the app shows the recipient, operator, certificate-verified domain, exact requested fields and purposes, policy and deletion links, authentication profile, and registration lifetime. Registration requires “Agree and register.” Manual renewal requires a separate confirmation and sends only a one-time proof signed by the already approved service-specific credential. Identifying and authentication payloads are end-to-end encrypted directly to the selected service. The developer and intermediaries cannot decrypt them, and no undisclosed field is sent. Limited HTTPS requests fetch provider metadata, check that the service policy is accessible, and perform a user-requested registration or renewal.\n\nIndependent services\n\nEach recipient controls subsequent processing under its own policy. Domain-certificate verification proves control of the service domain; it does not certify the named operator or legal sufficiency of its policy.\n\nRetention and deletion\n\nThe app displays the last expiration confirmed during registration or explicit renewal. Providers may extend their authoritative server-side expiry after verified authentication; the offline phone cannot observe that terminal-to-provider result, so its date may be earlier. Local registrations remain until deleted in the app, app storage is cleared, or the app is uninstalled. Android backup is disabled. Local deletion removes the record and profile-specific signing key, but not the service’s copy; use its displayed deletion instructions. An expired provider registration must be registered again.\n\nSecurity and logs\n\nPrivate signing keys are held by Android Keystore. The app accepts only protocol version 4 encrypted traffic. Logs do not contain names, identifiers, keys, plaintext, or decrypted registration/authentication data.\n\nContact\n\nApp privacy requests: https://github.com/voegtlel/nfcauth/issues. Service data requests must use that service’s deletion contact.\n\nPublished policy: https://voegtlel.github.io/nfcauth/privacy-policy.html</string>
+    <string name="app_privacy_policy_text">NFC Authenticator Privacy Policy\n\nEffective: October 30, 2026\nDeveloper: Lukas Voegtle\n\nOverview\n\nThe developer operates no authentication backend and receives no registration or authentication data. The app has no advertising, analytics, or tracking SDK. Transfers occur only when the user deliberately registers with a provider, explicitly renews a registration, or presents the phone to an NFC terminal. The app sends no background heartbeat and does not periodically contact providers.\n\nData stored locally\n\nFor each approved service and authentication profile, the app stores the service domain and disclosure metadata, approved fields and purposes, policy and deletion links, provider certificate fingerprint, approval and last-confirmed expiration times, a provider-issued opaque credential reference, and profile-specific credentials. Signing keys are not reused across services or profiles. Authentication attempts, assertions, NFC session keys, and access tokens are kept only in memory.\n\nTransfers\n\nBefore registration, the app shows the recipient, operator, certificate-verified domain, exact requested fields and purposes, policy and deletion links, authentication profile, and registration lifetime. Registration requires “Agree and register.” Manual renewal requires a separate confirmation and sends only a one-time proof signed by the already approved service-specific credential. Online registration and renewal use HTTPS with the selected provider. During NFC use, authenticated application-layer encryption protects the phone-to-terminal hop, and the selected terminal submits the signed approval to its provider bridge over HTTPS. The provider and its terminal or proxy infrastructure are the intended recipient and can process the approved data; the app developer and unrelated network intermediaries do not receive plaintext. No undisclosed field is sent. Limited HTTPS requests fetch provider metadata, check that the service policy is accessible, and perform a user-requested registration or renewal.\n\nIndependent services\n\nEach recipient controls subsequent processing under its own policy. Domain-certificate verification proves control of the service domain; it does not certify the named operator or legal sufficiency of its policy.\n\nRetention and deletion\n\nThe app displays the last expiration confirmed during registration or explicit renewal. Providers may extend their authoritative server-side expiry after verified authentication; the offline phone cannot observe that terminal-to-provider result, so its date may be earlier. Local registrations remain until deleted in the app, app storage is cleared, or the app is uninstalled. Android backup is disabled. Local deletion removes the record and profile-specific signing key, but not the service’s copy; use its displayed deletion instructions. An expired provider registration must be registered again.\n\nSecurity and logs\n\nPrivate signing keys are held by Android Keystore. The app accepts only protocol version 4 encrypted traffic. Logs do not contain names, identifiers, keys, plaintext, or decrypted registration/authentication data.\n\nContact\n\nApp privacy requests: https://github.com/voegtlel/nfcauth/issues. Service data requests must use that service’s deletion contact.\n\nPublished policy: https://voegtlel.github.io/nfcauth/privacy-policy.html</string>
 </resources>

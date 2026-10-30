@@ -25,7 +25,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var authDatabase: AuthDatabase
     private lateinit var keyManager: KeyManager
     private lateinit var statusText: TextView
-    private lateinit var readersAdapter: ReadersAdapter
+    private lateinit var registrationsAdapter: ServiceRegistrationsAdapter
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -36,21 +36,21 @@ class MainActivity : AppCompatActivity() {
         authDatabase = AuthDatabase(this)
         keyManager = KeyManager(this)
 
-        readersAdapter = ReadersAdapter(::showServiceDetails)
-        findViewById<RecyclerView>(R.id.readersRecyclerView).apply {
+        registrationsAdapter = ServiceRegistrationsAdapter(::showServiceDetails)
+        findViewById<RecyclerView>(R.id.registrationsRecyclerView).apply {
             layoutManager = LinearLayoutManager(this@MainActivity)
-            adapter = readersAdapter
+            adapter = registrationsAdapter
         }
         val swipeRefresh = findViewById<SwipeRefreshLayout>(R.id.swipeRefresh)
         swipeRefresh.setOnRefreshListener {
-            loadReaders()
+            loadRegistrations()
             swipeRefresh.isRefreshing = false
         }
         findViewById<Button>(R.id.infoButton).setOnClickListener {
             startActivity(Intent(this, AppPrivacyPolicyActivity::class.java))
         }
         findViewById<Button>(R.id.registerProviderButton).setOnClickListener { showProviderEntry() }
-        loadReaders()
+        loadRegistrations()
     }
 
     private fun applySystemBarInsets() {
@@ -90,7 +90,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
-        if (::authDatabase.isInitialized) loadReaders()
+        if (::authDatabase.isInitialized) loadRegistrations()
         val pending = PendingAuthorizationStore.get()
         if (pending != null && pending.assertion == null) {
             startActivity(Intent(this, BiometricPromptActivity::class.java))
@@ -121,17 +121,17 @@ class MainActivity : AppCompatActivity() {
         super.onDestroy()
     }
 
-    private fun loadReaders() {
-        val readers = authDatabase.getAllReaders()
-        readersAdapter.submitList(readers)
+    private fun loadRegistrations() {
+        val registrations = authDatabase.getAllRegistrations()
+        registrationsAdapter.submitList(registrations)
         statusText.text = resources.getQuantityString(
             R.plurals.registered_service_count,
-            readers.size,
-            readers.size,
+            registrations.size,
+            registrations.size,
         )
     }
 
-    private fun showServiceDetails(service: ReaderInfo) {
+    private fun showServiceDetails(service: ServiceRegistration) {
         val details = SpannableStringBuilder().apply {
             append(getString(R.string.service_details_operator, service.operatorName))
             append("\n")
@@ -203,7 +203,7 @@ class MainActivity : AppCompatActivity() {
         dialog.show()
     }
 
-    private fun confirmLocalDeletion(service: ReaderInfo) {
+    private fun confirmLocalDeletion(service: ServiceRegistration) {
         AlertDialog.Builder(this)
             .setTitle(R.string.delete_local_registration_title)
             .setMessage(
@@ -219,10 +219,10 @@ class MainActivity : AppCompatActivity() {
             .show()
     }
 
-    private fun deleteLocalRegistration(service: ReaderInfo) {
+    private fun deleteLocalRegistration(service: ServiceRegistration) {
         try {
             check(
-                authDatabase.deleteReader(
+                authDatabase.deleteRegistration(
                     service.serviceOrigin,
                     service.serviceId,
                     service.authenticationProfile,
@@ -233,7 +233,7 @@ class MainActivity : AppCompatActivity() {
                 service.serviceId,
                 service.authenticationProfile,
             )
-            loadReaders()
+            loadRegistrations()
             Toast.makeText(
                 this,
                 R.string.delete_local_registration_success,

@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light dark">
-  <title>NFC MFC Authenticator Privacy Policy</title>
+  <title>NFC Authenticator Privacy Policy</title>
   <style>
     :root { font: 17px/1.6 system-ui, sans-serif; color-scheme: light dark; }
     body { max-width: 52rem; margin: 0 auto; padding: 2rem 1.25rem 4rem; }
@@ -16,7 +16,7 @@
 </head>
 <body>
   <main>
-    <h1>NFC MFC Authenticator Privacy Policy</h1>
+    <h1>NFC Authenticator Privacy Policy</h1>
     <p class="meta"><strong>Effective:</strong> October 30, 2026<br>
       <strong>Developer:</strong> Lukas Voegtle</p>
 
@@ -41,20 +41,23 @@
     <p>Before registration, the app shows the recipient, operator,
       identity-verification status, exact requested fields, purpose of every
       field, policy and deletion links, and authentication profile. Registration
-      occurs only after <strong>Agree and register</strong>. All identifying and
-      authentication payloads are authenticated and end-to-end encrypted
-      directly to the selected service. The developer and intermediaries cannot
-      decrypt them. A service receives no fields beyond those disclosed and
-      approved.</p>
+      occurs only after <strong>Agree and register</strong>. Online registration
+      and renewal use HTTPS with the selected provider. During NFC use,
+      authenticated application-layer encryption protects the phone-to-terminal
+      hop, and the selected terminal submits the signed approval to its provider
+      bridge over HTTPS. The provider and its terminal or proxy infrastructure
+      are the intended recipient and can process the approved data; the app
+      developer and unrelated network intermediaries do not receive plaintext.
+      A service receives no fields beyond those disclosed and approved.</p>
     <p>Manual renewal requires a separate confirmation and sends only a
       one-time proof signed by the already approved service-specific credential.
       The app rechecks the provider certificate identity, signed disclosure, and
       policy before offering renewal.</p>
-    <p>The app makes a limited HTTPS request to confirm that a service-provided
-      privacy-policy URL is accessible and to fetch signed provider metadata.
-      It also uses HTTPS for a user-requested registration or renewal. The
-      website operator may receive ordinary network metadata such as an IP
-      address as part of those requests.</p>
+    <p>The app makes limited HTTPS requests to confirm that a service-provided
+      privacy-policy URL is accessible, fetch signed provider metadata, and
+      perform a user-requested registration or renewal. The selected provider
+      may receive ordinary network metadata such as an IP address as part of
+      those requests.</p>
 
     <h2>Independent service responsibility</h2>
     <p>Each recipient service independently controls data after decryption. Its

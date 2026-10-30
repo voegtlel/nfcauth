@@ -27,21 +27,21 @@ object AuthorizationRequestVerifier {
     fun verifyAuthorization(
         envelope: JSONObject,
         context: NfcSessionContext,
-        registration: ReaderInfo,
+        registration: ServiceRegistration,
         profile: String,
     ): VerifiedAuthorizationMessage = verify(envelope, context, registration, profile, false)
 
     fun verifyDelivery(
         envelope: JSONObject,
         context: NfcSessionContext,
-        registration: ReaderInfo,
+        registration: ServiceRegistration,
         profile: String,
     ): VerifiedAuthorizationMessage = verify(envelope, context, registration, profile, true)
 
     private fun verify(
         envelope: JSONObject,
         context: NfcSessionContext,
-        registration: ReaderInfo,
+        registration: ServiceRegistration,
         profile: String,
         delivery: Boolean,
     ): VerifiedAuthorizationMessage {

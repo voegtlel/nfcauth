@@ -28,7 +28,6 @@ class NfcSessionCryptoTest {
         phone.authenticate(transcript)
         val encrypted = reader.encrypt("secret".toByteArray(), "registration")
         assertArrayEquals("secret".toByteArray(), phone.decrypt(encrypted, "registration"))
-        assertEquals(reader.discoveryBinding(), phone.discoveryBinding())
         assertThrows(Exception::class.java) { phone.decrypt(encrypted, "registration") }
     }
 

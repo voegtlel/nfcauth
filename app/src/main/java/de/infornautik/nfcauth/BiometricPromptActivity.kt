@@ -39,7 +39,6 @@ class BiometricPromptActivity : AppCompatActivity() {
                             .put("terminal_id", approved.terminalId)
                             .put("credential_id", approved.credentialId)
                             .put("assurance", approved.assurance)
-                            .put("key_version", 1)
                             .put("approved_at", System.currentTimeMillis() / 1000L)
                         val payload = ASSERTION_DOMAIN.toByteArray() +
                             AuthorizationRequestVerifier.canonical(unsigned).toByteArray(Charsets.UTF_8)

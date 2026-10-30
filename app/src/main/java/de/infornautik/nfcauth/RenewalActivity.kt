@@ -20,7 +20,7 @@ class RenewalActivity : AppCompatActivity() {
     private val executor = Executors.newSingleThreadExecutor()
     private lateinit var database: AuthDatabase
     private lateinit var keys: KeyManager
-    private var registration: ReaderInfo? = null
+    private var registration: ServiceRegistration? = null
     private var verifiedManifest: VerifiedServiceManifest? = null
     private var renewal: JSONObject? = null
 
@@ -31,7 +31,7 @@ class RenewalActivity : AppCompatActivity() {
         val origin = intent.getStringExtra(EXTRA_ORIGIN) ?: return fail("Registration origin is missing")
         val serviceId = intent.getStringExtra(EXTRA_SERVICE_ID) ?: return fail("Service ID is missing")
         val profile = intent.getStringExtra(EXTRA_PROFILE) ?: return fail("Credential profile is missing")
-        registration = database.getReaderInfo(origin, serviceId, profile)
+        registration = database.getRegistration(origin, serviceId, profile)
             ?: return fail("Registration is no longer available")
         fetchCurrentProviderMetadata()
     }
@@ -91,7 +91,7 @@ class RenewalActivity : AppCompatActivity() {
         }
     }
 
-    private fun validateChallenge(value: JSONObject, current: ReaderInfo, manifest: ServiceManifest) {
+    private fun validateChallenge(value: JSONObject, current: ServiceRegistration, manifest: ServiceManifest) {
         val now = System.currentTimeMillis() / 1000L
         require(value.getInt("protocol_version") == ServiceManifestParser.PROTOCOL_VERSION)
         require(value.getString("action") == "registration.renew")
@@ -107,7 +107,7 @@ class RenewalActivity : AppCompatActivity() {
         require(proposed - now <= (manifest.registrationLifetimeDays + 1L) * 86_400L)
     }
 
-    private fun showRenewalConfirmation(value: JSONObject, current: ReaderInfo) {
+    private fun showRenewalConfirmation(value: JSONObject, current: ServiceRegistration) {
         val proposed = DateFormat.getDateInstance().format(
             Date(value.getLong("proposed_registration_expires_at") * 1000L),
         )
@@ -132,7 +132,7 @@ class RenewalActivity : AppCompatActivity() {
         }
     }
 
-    private fun biometricProof(current: ReaderInfo, payload: ByteArray) {
+    private fun biometricProof(current: ServiceRegistration, payload: ByteArray) {
         val signature = keys.signatureForAuthentication(
             current.serviceOrigin,
             current.serviceId,

@@ -39,7 +39,6 @@ class NfcSessionCrypto private constructor(
     )
 
     private var transportKey = ByteArray(0)
-    private var bindingKey = ByteArray(0)
     private var sendCounter = 0uL
     private var receiveCounter = 0uL
     private var authenticated = false
@@ -60,14 +59,6 @@ class NfcSessionCrypto private constructor(
         sendCounter = 0uL
         receiveCounter = 0uL
         authenticated = true
-    }
-
-    fun discoveryBinding(): String {
-        require(authenticated) { "Service identity is not authenticated" }
-        val mac = Mac.getInstance("HmacSHA256")
-        mac.init(SecretKeySpec(bindingKey, "HmacSHA256"))
-        return mac.doFinal("nfcauth-v4-session-binding".toByteArray())
-            .joinToString("") { "%02x".format(it.toInt() and 0xff) }
     }
 
     @Synchronized
@@ -113,9 +104,7 @@ class NfcSessionCrypto private constructor(
 
     private fun deriveSubkeys() {
         transportKey.fill(0)
-        bindingKey.fill(0)
         transportKey = hkdf(rootKey, sessionId, "nfcauth-v4-transport".toByteArray())
-        bindingKey = hkdf(rootKey, sessionId, "nfcauth-v4-binding".toByteArray())
     }
 
     private fun aad(direction: Byte, purpose: String, sequence: ByteArray): ByteArray {

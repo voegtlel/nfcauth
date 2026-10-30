@@ -76,7 +76,7 @@ abstract class BaseCardEmulationAuthService : HostApduService() {
             val request = envelope.getJSONObject("request")
             val serviceOrigin = request.getString("service_origin")
             val serviceId = request.getString("service_id")
-            val registration = database.getReaderInfo(serviceOrigin, serviceId, authenticationProfile)
+            val registration = database.getRegistration(serviceOrigin, serviceId, authenticationProfile)
                 ?: return UNAUTHORIZED.also { showNotRegistered() }
             val verified = AuthorizationRequestVerifier.verifyAuthorization(
                 envelope,
@@ -116,7 +116,7 @@ abstract class BaseCardEmulationAuthService : HostApduService() {
         if (SystemClock.elapsedRealtime() - sessionStartedAt > SESSION_BIND_TIMEOUT_MS) return SECURITY_ERROR
         return try {
             val pending = PendingAuthorizationStore.get() ?: return CONDITIONS_ERROR
-            val registration = database.getReaderInfo(
+            val registration = database.getRegistration(
                 pending.serviceOrigin,
                 pending.serviceId,
                 authenticationProfile,
@@ -144,7 +144,7 @@ abstract class BaseCardEmulationAuthService : HostApduService() {
         }
     }
 
-    private fun createAssertion(request: JSONObject, requestHash: String, registration: ReaderInfo): JSONObject {
+    private fun createAssertion(request: JSONObject, requestHash: String, registration: ServiceRegistration): JSONObject {
         val unsigned = JSONObject()
             .put("protocol_version", 4)
             .put("transaction_id", request.getString("transaction_id"))
@@ -153,7 +153,6 @@ abstract class BaseCardEmulationAuthService : HostApduService() {
             .put("terminal_id", request.getString("terminal_id"))
             .put("credential_id", registration.credentialId)
             .put("assurance", authenticationProfile)
-            .put("key_version", 1)
             .put("approved_at", System.currentTimeMillis() / 1000L)
         val payload = ASSERTION_DOMAIN.toByteArray() +
             AuthorizationRequestVerifier.canonical(unsigned).toByteArray(Charsets.UTF_8)
@@ -260,7 +259,7 @@ abstract class BaseCardEmulationAuthService : HostApduService() {
 
     private fun showNotRegistered() {
         runCatching {
-            startActivity(Intent(this, NotRegisteredDialog::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            startActivity(Intent(this, UnregisteredServiceDialog::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
         }
     }
 

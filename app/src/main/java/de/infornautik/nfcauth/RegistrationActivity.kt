@@ -14,7 +14,6 @@ import androidx.core.content.ContextCompat
 import org.json.JSONObject
 import java.net.URI
 import java.net.URL
-import java.security.MessageDigest
 import java.security.cert.X509Certificate
 import java.util.concurrent.Executors
 import javax.net.ssl.HttpsURLConnection
@@ -26,9 +25,6 @@ class RegistrationActivity : AppCompatActivity() {
     private var verified: VerifiedServiceManifest?
         get() = PendingRegistrationSession.verified
         set(value) { PendingRegistrationSession.verified = value }
-    private var manifestDocument: JSONObject?
-        get() = PendingRegistrationSession.manifestDocument
-        set(value) { PendingRegistrationSession.manifestDocument = value }
     private var selectedProfile: String?
         get() = PendingRegistrationSession.selectedProfile
         set(value) { PendingRegistrationSession.selectedProfile = value }
@@ -68,7 +64,6 @@ class RegistrationActivity : AppCompatActivity() {
                 requireNotNull(URI(manifest.serviceOrigin).host),
             )
             verified = value
-            manifestDocument = document
             showDisclosure(value)
         } catch (_: Exception) {
             fail("Preview provider manifest is invalid")
@@ -107,7 +102,6 @@ class RegistrationActivity : AppCompatActivity() {
                 )
                 runOnUiThread {
                     verified = value
-                    manifestDocument = document
                     showDisclosure(value)
                 }
             } catch (_: Exception) {
@@ -153,7 +147,7 @@ class RegistrationActivity : AppCompatActivity() {
                     "Registration lifetime: ${manifest.registrationLifetimeDays} days. " +
                     "Successful authentication or an explicit renewal extends it. " +
                     "The app sends no background heartbeat.\n\n" +
-                    "Data is encrypted directly to ${manifest.serviceName}. " +
+                    "Registration data is sent over HTTPS to ${manifest.serviceName}. " +
                     "Deletion: ${manifest.deletionUrlOrContact}\nPrivacy: ${manifest.privacyPolicyUrl}",
             )
             .setSingleChoiceItems(profiles, choice) { _, which -> choice = which }
@@ -258,12 +252,11 @@ class RegistrationActivity : AppCompatActivity() {
                 val manifest = value.manifest
                 require(response.getString("service_id") == manifest.serviceId)
                 require(response.getString("profile") == selectedProfile)
-                require(response.getInt("key_version") == 1)
                 val now = System.currentTimeMillis() / 1000L
                 val expiresAtSeconds = response.getLong("registration_expires_at")
                 require(expiresAtSeconds > now)
                 require(expiresAtSeconds - now <= (manifest.registrationLifetimeDays + 1L) * 86_400L)
-                val record = ReaderInfo(
+                val record = ServiceRegistration(
                     manifest.serviceOrigin,
                     manifest.serviceId,
                     manifest.serviceName,
@@ -283,7 +276,7 @@ class RegistrationActivity : AppCompatActivity() {
                     manifest.allowedAudiences,
                     manifest.allowedScopes,
                 )
-                require(database.registerReader(record))
+                require(database.saveRegistration(record))
                 runOnUiThread {
                     Toast.makeText(this, "Registered with ${manifest.serviceName}", Toast.LENGTH_LONG).show()
                     PendingRegistrationSession.clear()
@@ -310,9 +303,6 @@ class RegistrationActivity : AppCompatActivity() {
 
     private fun completionPayload(id: String, code: String) =
         "NFCAuth-v4-registration-complete\u0000$id\u0000$code".toByteArray(Charsets.UTF_8)
-
-    private fun sha256(value: ByteArray) = MessageDigest.getInstance("SHA-256").digest(value)
-        .joinToString("") { "%02x".format(it.toInt() and 0xff) }
 
     private fun fail(message: String) {
         Toast.makeText(this, message, Toast.LENGTH_LONG).show()

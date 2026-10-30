@@ -104,9 +104,8 @@ perform an enrollment before provisioning a terminal. Back up PostgreSQL and
 the enrollment/token-signing keys. Transient authentication requests are not
 recoverable and do not need backup.
 
-Protocol v4 is a new prerelease database schema and provides no migration from
-older prerelease schemas. Recreate the development database/volume before
-deploying this version. Production operators should add schema migration
+The database schema is prerelease. Recreate the development database or volume
+after schema changes. Production operators should add schema migration
 management before accepting real enrollments.
 
 For production, replace PEM signing with a `RequestSigner` backed by KMS/HSM,

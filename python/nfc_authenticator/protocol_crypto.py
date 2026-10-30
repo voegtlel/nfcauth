@@ -25,7 +25,6 @@ PURPOSE_SESSION_AUTHENTICATION = "session-authentication"
 HKDF_PROVISIONAL_INFO = b"nfcauth-v4-provisional-session"
 HKDF_AUTHENTICATED_INFO = b"nfcauth-v4-authenticated-session"
 HKDF_TRANSPORT_INFO = b"nfcauth-v4-transport"
-HKDF_BINDING_INFO = b"nfcauth-v4-binding"
 
 
 class ProtocolCryptoError(ValueError):
@@ -53,7 +52,6 @@ class NfcSession:
     _receive_counter: int = field(default=0, init=False, repr=False)
     _terminated: bool = field(default=False, init=False, repr=False)
     _transport_key: bytes = field(default=b"", init=False, repr=False)
-    _binding_key: bytes = field(default=b"", init=False, repr=False)
 
     def __post_init__(self) -> None:
         self._derive_subkeys(self.root_key)
@@ -64,12 +62,6 @@ class NfcSession:
             length=32,
             salt=self.session_id,
             info=HKDF_TRANSPORT_INFO,
-        ).derive(root_key)
-        self._binding_key = HKDF(
-            algorithm=hashes.SHA256(),
-            length=32,
-            salt=self.session_id,
-            info=HKDF_BINDING_INFO,
         ).derive(root_key)
 
     def authenticate(self, transcript_hash: bytes) -> None:
@@ -86,16 +78,6 @@ class NfcSession:
         self._send_counter = 0
         self._receive_counter = 0
         self.authenticated = True
-
-    @property
-    def discovery_binding(self) -> str:
-        if not self.authenticated:
-            raise ProtocolCryptoError("NFC session identity is not authenticated")
-        return hmac.new(
-            self._binding_key,
-            b"nfcauth-v4-session-binding",
-            "sha256",
-        ).hexdigest()
 
     def encrypt(self, plaintext: bytes, purpose: str) -> bytes:
         self._require_purpose(purpose)

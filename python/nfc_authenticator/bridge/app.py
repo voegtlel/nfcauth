@@ -44,7 +44,6 @@ class AssertionBody(BaseModel):
     terminal_id: str
     credential_id: str
     assurance: str
-    key_version: int
     approved_at: int
     signature: str
 
@@ -214,7 +213,6 @@ def create_app(
                 "credential_id": credential.credential_id,
                 "service_id": credential.service_id,
                 "profile": credential.profile,
-                "key_version": credential.key_version,
                 "registration_expires_at": credential.expires_at,
             }
         except (ValueError, TypeError) as error:

@@ -164,8 +164,8 @@ class PlayStoreScreenshotTest {
     private fun seedExampleService() {
         AuthDatabase(context).use { database ->
             check(
-                database.registerReader(
-                    ReaderInfo(
+                database.saveRegistration(
+                    ServiceRegistration(
                         serviceOrigin = "https://voegtlel.github.io",
                         serviceId = "example.service",
                         serviceName = EXAMPLE_SERVICE_NAME,

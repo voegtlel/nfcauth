@@ -9,7 +9,7 @@
         android:id="@+id/messageTextView"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="This device is not registered. Please register your device first."
+        android:text="This provider is not registered in NFC Authenticator. Register with the provider in the app first."
         android:textAlignment="center"
         android:textSize="18sp"
         app:layout_constraintBottom_toTopOf="@+id/closeButton"

@@ -38,49 +38,49 @@ class AuthDatabase(context: Context) : SQLiteOpenHelper(context, "auth-v4.db", n
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) =
-        error("Protocol-v4 database has no legacy migration path")
+        error("Database schema upgrades are unsupported")
 
-    fun getAllReaders(): List<ReaderInfo> {
-        val readers = mutableListOf<ReaderInfo>()
+    fun getAllRegistrations(): List<ServiceRegistration> {
+        val registrations = mutableListOf<ServiceRegistration>()
         readableDatabase.query("services", null, null, null, null, null, "service_name COLLATE NOCASE").use {
-            while (it.moveToNext()) it.toReader()?.let(readers::add)
+            while (it.moveToNext()) it.toRegistration()?.let(registrations::add)
         }
-        return readers
+        return registrations
     }
 
-    fun getReaderInfo(serviceOrigin: String, serviceId: String, profile: String): ReaderInfo? =
+    fun getRegistration(serviceOrigin: String, serviceId: String, profile: String): ServiceRegistration? =
         readableDatabase.query(
             "services", null, "service_origin=? AND service_id=? AND authentication_profile=?",
             arrayOf(serviceOrigin, serviceId, profile), null, null, null,
-        ).use { if (it.moveToFirst()) it.toReader() else null }
+        ).use { if (it.moveToFirst()) it.toRegistration() else null }
 
-    fun registerReader(reader: ReaderInfo): Boolean {
+    fun saveRegistration(registration: ServiceRegistration): Boolean {
         val values = ContentValues().apply {
-            put("service_id", reader.serviceId)
-            put("authentication_profile", reader.authenticationProfile)
-            put("service_origin", reader.serviceOrigin)
-            put("service_name", reader.serviceName)
-            put("operator_name", reader.operatorName)
-            put("credential_id", reader.credentialId)
-            put("privacy_policy_url", reader.privacyPolicyUrl)
-            put("privacy_notice_version", reader.privacyNoticeVersion)
-            put("requested_fields", JSONArray(reader.requestedFields).toString())
-            put("purposes", JSONObject(reader.purposes).toString())
-            put("deletion_contact", reader.deletionUrlOrContact)
-            put("certificate_fingerprint", reader.certificateFingerprint)
-            put("verified_domain", reader.verifiedDomain)
-            put("manifest_hash", reader.manifestHash)
-            put("approved_at", reader.approvedAt)
-            put("registration_expires_at", reader.registrationExpiresAt)
-            put("allowed_audiences", JSONArray(reader.allowedAudiences).toString())
-            put("allowed_scopes", JSONArray(reader.allowedScopes).toString())
+            put("service_id", registration.serviceId)
+            put("authentication_profile", registration.authenticationProfile)
+            put("service_origin", registration.serviceOrigin)
+            put("service_name", registration.serviceName)
+            put("operator_name", registration.operatorName)
+            put("credential_id", registration.credentialId)
+            put("privacy_policy_url", registration.privacyPolicyUrl)
+            put("privacy_notice_version", registration.privacyNoticeVersion)
+            put("requested_fields", JSONArray(registration.requestedFields).toString())
+            put("purposes", JSONObject(registration.purposes).toString())
+            put("deletion_contact", registration.deletionUrlOrContact)
+            put("certificate_fingerprint", registration.certificateFingerprint)
+            put("verified_domain", registration.verifiedDomain)
+            put("manifest_hash", registration.manifestHash)
+            put("approved_at", registration.approvedAt)
+            put("registration_expires_at", registration.registrationExpiresAt)
+            put("allowed_audiences", JSONArray(registration.allowedAudiences).toString())
+            put("allowed_scopes", JSONArray(registration.allowedScopes).toString())
         }
         return writableDatabase.insertWithOnConflict(
             "services", null, values, SQLiteDatabase.CONFLICT_REPLACE,
         ) != -1L
     }
 
-    fun deleteReader(serviceOrigin: String, serviceId: String, profile: String): Boolean =
+    fun deleteRegistration(serviceOrigin: String, serviceId: String, profile: String): Boolean =
         writableDatabase.delete(
             "services",
             "service_origin=? AND service_id=? AND authentication_profile=?",
@@ -105,13 +105,13 @@ class AuthDatabase(context: Context) : SQLiteOpenHelper(context, "auth-v4.db", n
         arrayOf(serviceOrigin, serviceId, profile),
     ) == 1
 
-    private fun Cursor.toReader(): ReaderInfo? = try {
+    private fun Cursor.toRegistration(): ServiceRegistration? = try {
         fun string(name: String) = getString(getColumnIndexOrThrow(name))
         val fieldsJson = JSONArray(string("requested_fields"))
         val fields = (0 until fieldsJson.length()).map(fieldsJson::getString)
         val purposeJson = JSONObject(string("purposes"))
         val purposes = purposeJson.keys().asSequence().associateWith(purposeJson::getString)
-        ReaderInfo(
+        ServiceRegistration(
             string("service_origin"), string("service_id"), string("service_name"),
             string("operator_name"), string("credential_id"), string("authentication_profile"),
             string("privacy_policy_url"), string("privacy_notice_version"), fields, purposes,

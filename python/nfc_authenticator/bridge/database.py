@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sqlalchemy import BigInteger, Boolean, Integer, String, delete, update
+from sqlalchemy import BigInteger, Boolean, String, delete, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -24,7 +24,6 @@ class CredentialRow(Base):
     expires_at: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
     last_authenticated_at: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     last_renewed_at: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
-    key_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     revoked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
 
@@ -104,6 +103,5 @@ def _credential(row: CredentialRow) -> Credential:
         row.expires_at,
         row.last_authenticated_at,
         row.last_renewed_at,
-        row.key_version,
         row.revoked,
     )

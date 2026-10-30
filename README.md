@@ -34,10 +34,6 @@ subsequent processing of data transferred to it.
 - Authentication attempts, assertions, NFC session keys and terminal tokens are
   never persisted.
 
-Protocol v4 is deliberately incompatible with earlier prerelease protocols. It
-removes credential-key epochs, discovery, `KEY_COMMIT`, `KEY_COMMIT_ACK`, and
-persistent symmetric credential keys.
-
 ## Implementations
 
 The repository contains:

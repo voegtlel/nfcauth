@@ -1,6 +1,6 @@
 package de.infornautik.nfcauth
 
-data class ReaderInfo(
+data class ServiceRegistration(
     val serviceOrigin: String,
     val serviceId: String,
     val serviceName: String,

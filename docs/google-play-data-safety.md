@@ -15,9 +15,11 @@ changes.
 - The phone stores provider disclosure/consent metadata, an opaque
   provider-assigned credential ID, expiry, and service/profile-specific Android
   Keystore keys locally. Android backup is disabled.
-- Identifying and authentication transfers are authenticated and encrypted to
-  the selected provider. The developer and intermediaries do not have
-  decryption keys.
+- Online registration and renewal use HTTPS with the selected provider. NFC
+  payloads use authenticated application-layer encryption between the phone and
+  selected terminal, which submits the signed approval to its bridge over
+  HTTPS. The provider is the intended recipient and can process the approved
+  data; the app developer does not operate those endpoints or receive it.
 - Each provider independently controls its server-side account mapping and
   credential record. The app shows its policy and deletion instructions before
   registration and keeps those links available afterward.
@@ -26,17 +28,19 @@ changes.
 
 ## Suggested Play Console answers
 
-Google says data sent off-device under end-to-end encryption need not be
-disclosed when it is unreadable by the developer and every intermediary and
-only sender and recipient have the keys. Under the current implementation and
-only while those conditions remain true, selecting that the app does not
-collect or share user data is supportable. The declaration is the developer's
+Google's end-to-end-encryption exception depends on data being unreadable by the
+developer and unrelated intermediaries, with only the sender and intended
+recipient able to process it. The selected provider, its provisioned terminal,
+and its provider-controlled TLS termination are the recipient side of this
+design. Ordinary HTTPS through an unrelated TLS-terminating CDN or proxy does
+not by itself satisfy that exception. The declaration is the developer's
 responsibility; inspect every bundled SDK and every production network path
 before submission.
 
 - Ads: **No**.
-- Data safety collection/sharing: **No**, relying on the end-to-end-encryption
-  exclusion for provider transfers and on-device-only handling for local data.
+- Data safety collection/sharing: **No** only when the production deployment
+  satisfies the end-to-end-encryption exception above and the developer remains
+  outside the provider path; otherwise disclose the provider transfer.
 - Encryption in transit: **Yes**.
 - Account creation: the app does not create an account operated by the app
   developer. It links a device credential to an independently operated

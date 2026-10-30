@@ -8,7 +8,7 @@ version = "4.0.0"
 description = "Privacy-aware NFC Auth v4 terminal and provider bridge"
 readme = "README.md"
 authors = [
-    {name = "NFC MFC Auth Team"}
+    {name = "Lukas Voegtle"}
 ]
 requires-python = ">=3.11"
 dependencies = [
@@ -45,7 +45,7 @@ include = ["nfc_authenticator*"]
 
 [tool.ruff]
 line-length = 120
-target-version = "py39"
+target-version = "py311"
 exclude = [
     ".git",
     "__pycache__",

@@ -60,7 +60,7 @@
             android:turnScreenOn="true" />
 
         <activity
-            android:name=".NotRegisteredDialog"
+            android:name=".UnregisteredServiceDialog"
             android:theme="@android:style/Theme.Dialog"
             android:exported="false" />
 
