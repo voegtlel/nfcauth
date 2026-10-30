@@ -25,6 +25,9 @@ subsequent processing of data transferred to it.
   then tap the same terminal again to deliver the in-memory assertion.
 - The bridge consumes each transaction once and issues or exchanges a token
   with a maximum lifetime of 600 seconds. No refresh token is issued.
+- Terminals authenticate to the bridge over ordinary HTTPS with short-lived
+  OAuth/OIDC M2M bearer tokens. Identity comes from the verified token subject,
+  not a proxy header or client certificate.
 - Provider registrations default to an 18-month (548-day) lease. Each verified
   authentication extends the lease. A user can also explicitly renew with the
   existing service-specific credential; there is no background heartbeat.

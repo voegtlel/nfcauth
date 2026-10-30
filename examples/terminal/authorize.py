@@ -4,18 +4,26 @@ from __future__ import annotations
 
 import os
 
-from nfc_authenticator.terminal import BridgeClient, TerminalController, validate_protected_api_url
+from nfc_authenticator.terminal import (
+    BridgeClient,
+    OAuthClientCredentialsTokenProvider,
+    TerminalController,
+    validate_protected_api_url,
+)
 from nfc_authenticator.terminal_apdu import ApduPhoneChannel
 from nfc_authenticator.terminal_transport import NfcTransport
 
 
 async def authorize(transport: NfcTransport) -> None:
     """Authorize with any PC/SC, USB, serial, vendor-SDK, or custom adapter."""
-    bridge = BridgeClient(
-        os.environ["NFCAUTH_TERMINAL_BRIDGE_URL"],
-        os.environ["NFCAUTH_TERMINAL_ID"],
-        certificate=(os.environ["NFCAUTH_TERMINAL_CERT"], os.environ["NFCAUTH_TERMINAL_KEY"]),
+    terminal_tokens = OAuthClientCredentialsTokenProvider(
+        os.environ["NFCAUTH_TERMINAL_TOKEN_ENDPOINT"],
+        os.environ["NFCAUTH_TERMINAL_OAUTH_CLIENT_ID"],
+        username=os.environ["NFCAUTH_TERMINAL_OAUTH_USERNAME"],
+        password=os.environ["NFCAUTH_TERMINAL_OAUTH_APP_PASSWORD"],
+        scope="nfcauth:terminal",
     )
+    bridge = BridgeClient(os.environ["NFCAUTH_TERMINAL_BRIDGE_URL"], terminal_tokens)
     controller = TerminalController(bridge, ApduPhoneChannel(transport, "biometric"))
     try:
         token = await controller.authorize(

@@ -1,23 +1,5 @@
 {$NFCAUTH_PUBLIC_HOSTNAME} {
     tls /etc/nfcauth/provider-certificate-chain.pem /etc/nfcauth/provider-signing-key.pem
     encode zstd gzip
-    @terminal path /v1/transactions*
-    respond @terminal 404
-    reverse_proxy bridge:8080
-}
-
-# Terminals use a separate origin so mTLS can be mandatory without preventing
-# phones and browsers from reaching discovery and registration endpoints.
-{$NFCAUTH_TERMINAL_HOSTNAME} {
-    tls {
-        client_auth {
-            mode require_and_verify
-            trust_pool file /etc/nfcauth/pki/terminal-ca.pem
-        }
-    }
-    @notTerminal not path /v1/transactions* /health/*
-    respond @notTerminal 404
-    request_header -X-NFCAuth-Terminal-Cert-SHA256
-    request_header X-NFCAuth-Terminal-Cert-SHA256 {http.request.tls.client.fingerprint}
     reverse_proxy bridge:8080
 }

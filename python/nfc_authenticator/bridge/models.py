@@ -16,7 +16,6 @@ class TransactionState(StrEnum):
 @dataclass(frozen=True)
 class TerminalIdentity:
     terminal_id: str
-    key_fingerprint: str
     allowed_audiences: frozenset[str]
     allowed_scopes: frozenset[str]
     allowed_assurance: frozenset[str] = field(default_factory=lambda: frozenset({"possession", "biometric"}))

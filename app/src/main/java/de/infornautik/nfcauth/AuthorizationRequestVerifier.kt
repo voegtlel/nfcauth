@@ -51,7 +51,6 @@ object AuthorizationRequestVerifier {
         require(request.getString("service_id") == registration.serviceId)
         require(request.getString("service_origin") == registration.serviceOrigin)
         require(request.getString("terminal_id").isNotBlank())
-        require(request.getString("terminal_key_fingerprint").length == 64)
         requireSession(request.getJSONObject("session"), context)
         val now = System.currentTimeMillis() / 1000L
         require(request.getLong("issued_at") <= now + 30 && request.getLong("expires_at") > now)

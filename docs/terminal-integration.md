@@ -40,13 +40,23 @@ package.
 
 ## Provision a terminal
 
-1. Create a distinct client certificate and private key for the terminal.
-2. Put the certificate fingerprint, allowed audiences, scopes and assurance
+1. Create a distinct Authentik or generic OAuth service account for the
+   terminal and issue an app password or client credential.
+2. Configure its access tokens for the bridge audience, the
+   `nfcauth:terminal` scope and a lifetime of at most ten minutes.
+3. Put the token's stable `sub` claim, allowed audiences, scopes and assurance
    profiles in `deploy/config/terminals.json`.
-3. Keep the private key in a TPM or secure element where possible.
-4. Connect to the bridge's terminal-only mTLS hostname.
-5. Provide a human-readable action for every request. Never derive the phone UI
+4. Keep the credential in protected terminal storage and rotate it normally.
+5. Connect to the provider's ordinary HTTPS bridge origin. No client
+   certificate or proxy-specific identity header is required.
+6. Provide a human-readable action for every request. Never derive the phone UI
    from unsigned local terminal text.
+
+`OAuthClientCredentialsTokenProvider` obtains tokens on demand and caches them
+in process memory until shortly before expiry. It supports standard
+`client_secret` authentication and Authentik's per-service-account
+`username`/app-password form. `BridgeClient` adds the resulting bearer token to
+each bridge request; it does not accept a caller-supplied terminal ID.
 
 ## Use the result
 

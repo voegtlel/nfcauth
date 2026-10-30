@@ -27,8 +27,9 @@ access tokens or authentication attempts. The bridge durably stores
 account-to-public-key enrollments, registration timestamps, expiry, and the
 last verified authentication or explicit renewal time. Registration state,
 renewal challenges, and authentication transactions expire from memory; a
-restart simply requires the user to try again. Terminals retain their mTLS
-identity but keep transaction state and access tokens in memory only.
+restart simply requires the user to try again. Terminals retain their OAuth
+credentials outside the library and keep OAuth tokens, transaction state and
+resulting user access tokens in memory only.
 
 The default registration lease is 548 days. A verified authentication extends
 it from that authentication time. A user may instead open the registration
@@ -45,12 +46,16 @@ during registration or explicit renewal and can conservatively lag the server.
 
 ## Trust boundaries
 
-The terminal authenticates to the bridge with an individual mTLS certificate.
+The terminal authenticates to the bridge over ordinary HTTPS with a short-lived
+OAuth/OIDC bearer token. The bridge validates its issuer, signature, audience,
+scope, lifetime and subject, then derives the terminal identity and policy from
+that verified subject. Reverse proxies do not provide trusted identity headers.
 The bridge signs only typed authorization and delivery messages; it cannot be
-used as an arbitrary signing oracle. The phone validates the Web-PKI chain,
-DNS SAN, `serverAuth` EKU, certificate fingerprint accepted at registration,
-request signature, transaction expiry, terminal identity, audience, scopes,
-assurance profile, phone challenge, session ID and both ephemeral NFC keys.
+used as an arbitrary signing oracle. The phone validates the provider Web-PKI
+chain, DNS SAN, `serverAuth` EKU, certificate fingerprint accepted at
+registration, request signature, transaction expiry, terminal identity,
+audience, scopes, assurance profile, phone challenge, session ID and both
+ephemeral NFC keys.
 
 The bridge is an authentication authority and must be hosted accordingly. Its
 certificate and token keys belong in KMS/HSM-backed storage in production. The

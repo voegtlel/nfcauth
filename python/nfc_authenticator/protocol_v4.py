@@ -63,7 +63,6 @@ class AuthorizationRequest:
     service_origin: str
     manifest_hash: str
     terminal_id: str
-    terminal_key_fingerprint: str
     audience: str
     scopes: tuple[str, ...]
     action: str
@@ -81,8 +80,8 @@ class AuthorizationRequest:
             raise ValueError("Authorization request has an empty required field")
         if not self.service_origin.startswith("https://"):
             raise ValueError("Service origin must use HTTPS")
-        if len(self.manifest_hash) != 64 or len(self.terminal_key_fingerprint) != 64:
-            raise ValueError("Invalid request fingerprint")
+        if len(self.manifest_hash) != 64:
+            raise ValueError("Invalid manifest fingerprint")
         if self.assurance not in ALLOWED_ASSURANCE:
             raise ValueError("Unsupported assurance profile")
         if not self.scopes or len(set(self.scopes)) != len(self.scopes) or any(not value for value in self.scopes):
@@ -157,7 +156,6 @@ class AssertionDeliveryRequest:
     service_id: str
     service_origin: str
     terminal_id: str
-    terminal_key_fingerprint: str
     issued_at: int
     expires_at: int
     session: SessionBinding
@@ -175,7 +173,7 @@ class AssertionDeliveryRequest:
             raise ValueError("Invalid delivery request")
         if self.expires_at - self.issued_at > 30 or current < self.issued_at - 10 or current >= self.expires_at:
             raise ValueError("Delivery request is expired")
-        if len(self.request_hash) != 64 or len(self.terminal_key_fingerprint) != 64:
+        if len(self.request_hash) != 64:
             raise ValueError("Invalid delivery binding")
         self.session.validate()
 

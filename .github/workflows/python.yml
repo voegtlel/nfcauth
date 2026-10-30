@@ -29,10 +29,12 @@ jobs:
         python -m pip install 'uv==0.13.5'
         uv sync --frozen --extra dev
 
-    - name: Check protocol and transport type annotations
+    - name: Check protocol, terminal, and transport type annotations
       run: >-
         uv run mypy --strict --follow-imports=silent
-        nfc_authenticator/protocol_v4.py nfc_authenticator/terminal_transport.py
+        nfc_authenticator/protocol_v4.py nfc_authenticator/terminal.py
+        nfc_authenticator/terminal_transport.py
+        nfc_authenticator/bridge/terminal_auth.py
 
     - name: Lint
       run: uv run ruff check . ../examples/terminal

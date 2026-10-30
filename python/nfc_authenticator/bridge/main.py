@@ -17,6 +17,7 @@ from .renewal import RenewalAttempts, RenewalCoordinator
 from .security import CertificateRequestSigner
 from .service import BridgeService
 from .stores import MemoryTransactionStore
+from .terminal_auth import OidcTerminalAuthenticator
 
 logger = logging.getLogger(__name__)
 
@@ -79,9 +80,17 @@ def app_from_environment() -> FastAPI:
         enrollments,
         credential_lifetime_seconds=credential_lifetime_seconds,
     )
+    terminal_authenticator = OidcTerminalAuthenticator(
+        issuer=settings.terminal_oidc_issuer,
+        audience=settings.terminal_oidc_audience,
+        jwks_uri=settings.terminal_oidc_jwks_uri,
+        terminals=load_terminals(settings.terminal_registry_path),
+        required_scope=settings.terminal_required_scope,
+        maximum_token_lifetime_seconds=settings.terminal_token_max_lifetime_seconds,
+    )
     app = create_app(
         service=service,
-        terminals=load_terminals(settings.terminal_registry_path),
+        terminal_authenticator=terminal_authenticator,
         manifest=manifest,
         registrations=registrations,
         renewals=renewals,
@@ -107,6 +116,7 @@ def app_from_environment() -> FastAPI:
             cleanup_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await cleanup_task
+            await terminal_authenticator.close()
             await enrollments.close()
 
     app.router.lifespan_context = lifespan

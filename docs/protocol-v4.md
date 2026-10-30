@@ -42,6 +42,20 @@ Manual renewal is deliberately user initiated:
 An expired registration cannot be renewed and must be enrolled again through
 the provider login. The app does not run a renewal worker or heartbeat.
 
+## Terminal HTTPS authentication
+
+Every bridge transaction endpoint requires a short-lived OAuth/OIDC bearer
+token over HTTPS. The bridge validates the JWT signature against the configured
+JWKS, requires the exact issuer and bridge audience, requires the
+`nfcauth:terminal` scope, limits the token lifetime, and uses the verified `sub`
+claim as the terminal identity. That subject must exist in the provider's
+terminal policy registry.
+
+The terminal never supplies a separate trusted identity header. Its M2M token
+is distinct from the user access token produced after NFC authorization and is
+never sent to the phone. Any reverse proxy can be used because terminal
+authentication is part of the bridge's standard HTTPS API.
+
 ## NFC transport
 
 Each tap creates an independent P-256 ECDH exchange. HKDF-SHA-256 derives

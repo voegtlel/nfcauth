@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
 import ipaddress
+import time
 from dataclasses import dataclass
-from typing import Any, Protocol
+from collections.abc import Mapping
+from typing import Any, Protocol, cast
 from urllib.parse import urlsplit
 
 import httpx
@@ -25,6 +28,91 @@ class PhoneChannel(Protocol):
     async def fetch_approved_assertion(self, signed_delivery_request: dict[str, Any]) -> AuthorizationAssertion: ...
 
     async def close(self) -> None: ...
+
+
+class AccessTokenProvider(Protocol):
+    async def get_access_token(self) -> str: ...
+
+    async def close(self) -> None: ...
+
+
+class OAuthClientCredentialsTokenProvider:
+    """Obtain and cache an OAuth client-credentials token in process memory only."""
+
+    def __init__(
+        self,
+        token_endpoint: str,
+        client_id: str,
+        *,
+        scope: str,
+        client_secret: str | None = None,
+        username: str | None = None,
+        password: str | None = None,
+        timeout_seconds: float = 5.0,
+    ) -> None:
+        if not token_endpoint.startswith("https://"):
+            raise ValueError("OAuth token endpoint must use HTTPS")
+        if not client_id or not scope:
+            raise ValueError("OAuth client ID and scope must be nonempty")
+        uses_secret = client_secret is not None
+        uses_user = username is not None or password is not None
+        if uses_secret == uses_user or uses_user and (not username or not password):
+            raise ValueError("Provide either client_secret or both username and password")
+        self.token_endpoint = token_endpoint
+        self.client_id = client_id
+        self.scope = scope
+        self.client_secret = client_secret
+        self.username = username
+        self.password = password
+        self.client = httpx.AsyncClient(timeout=timeout_seconds, headers={"Accept": "application/json"})
+        self._access_token = ""
+        self._refresh_at = 0.0
+        self._lock = asyncio.Lock()
+
+    async def get_access_token(self) -> str:
+        now = time.monotonic()
+        if self._access_token and now < self._refresh_at:
+            return self._access_token
+        async with self._lock:
+            now = time.monotonic()
+            if self._access_token and now < self._refresh_at:
+                return self._access_token
+            data = {
+                "grant_type": "client_credentials",
+                "client_id": self.client_id,
+                "scope": self.scope,
+            }
+            if self.client_secret is not None:
+                data["client_secret"] = self.client_secret
+            else:
+                data["username"] = self.username or ""
+                data["password"] = self.password or ""
+            response = await self.client.post(self.token_endpoint, data=data)
+            response.raise_for_status()
+            value = response.json()
+            if not isinstance(value, dict):
+                raise ValueError("OAuth token response must be a JSON object")
+            access_token = value.get("access_token")
+            token_type = value.get("token_type", "Bearer")
+            expires_in = int(value.get("expires_in", 0))
+            if (
+                not isinstance(access_token, str)
+                or not access_token
+                or len(access_token) > 16 * 1024
+                or not isinstance(token_type, str)
+                or token_type.lower() != "bearer"
+                or expires_in <= 0
+            ):
+                raise ValueError("OAuth token response is invalid")
+            refresh_margin = min(30, max(1, expires_in // 10))
+            self._access_token = access_token
+            self._refresh_at = now + max(1, expires_in - refresh_margin)
+            return access_token
+
+    async def close(self) -> None:
+        self._access_token = ""
+        self._refresh_at = 0.0
+        await self.client.aclose()
 
 
 @dataclass(frozen=True)
@@ -78,55 +166,63 @@ class BridgeClient:
     def __init__(
         self,
         base_url: str,
-        terminal_id: str,
+        token_provider: AccessTokenProvider,
         *,
-        certificate: tuple[str, str] | None = None,
-        development_certificate_fingerprint: str | None = None,
         timeout_seconds: float = 5.0,
     ) -> None:
         if not base_url.startswith("https://"):
             raise ValueError("Bridge URL must use HTTPS")
         self.base_url = base_url.rstrip("/")
-        self.terminal_id = terminal_id
-        self.headers = {"X-NFCAuth-Terminal-ID": terminal_id, "Accept": "application/json"}
-        # Production reverse proxies strip this header and inject the verified
-        # client-certificate fingerprint. This option is for local development.
-        if development_certificate_fingerprint:
-            self.headers["X-NFCAuth-Terminal-Cert-SHA256"] = development_certificate_fingerprint
+        self.token_provider = token_provider
         self.client = httpx.AsyncClient(
             base_url=self.base_url,
-            headers=self.headers,
-            cert=certificate,
+            headers={"Accept": "application/json"},
             timeout=timeout_seconds,
         )
 
-    async def create_transaction(self, audience: str, scopes: tuple[str, ...], action: str, assurance: str) -> dict:
-        response = await self.client.post(
-            "/v1/transactions",
-            json={"audience": audience, "scopes": scopes, "action": action, "assurance": assurance},
-        )
-        response.raise_for_status()
-        return response.json()
+    async def _post(self, path: str, value: Mapping[str, Any]) -> httpx.Response:
+        access_token = await self.token_provider.get_access_token()
+        return await self.client.post(path, json=value, headers={"Authorization": f"Bearer {access_token}"})
 
-    async def bind_session(self, transaction_id: str, session: SessionBinding, *, delivery: bool = False) -> dict:
-        suffix = "bind-delivery-session" if delivery else "bind-nfc-session"
-        response = await self.client.post(
-            f"/v1/transactions/{transaction_id}/{suffix}",
-            json=session.__dict__,
+    @staticmethod
+    def _json_object(response: httpx.Response) -> dict[str, Any]:
+        value = response.json()
+        if not isinstance(value, dict):
+            raise ValueError("Bridge response must be a JSON object")
+        return cast(dict[str, Any], value)
+
+    async def create_transaction(
+        self, audience: str, scopes: tuple[str, ...], action: str, assurance: str
+    ) -> dict[str, Any]:
+        response = await self._post(
+            "/v1/transactions",
+            {"audience": audience, "scopes": scopes, "action": action, "assurance": assurance},
         )
         response.raise_for_status()
-        return response.json()
+        return self._json_object(response)
+
+    async def bind_session(
+        self, transaction_id: str, session: SessionBinding, *, delivery: bool = False
+    ) -> dict[str, Any]:
+        suffix = "bind-delivery-session" if delivery else "bind-nfc-session"
+        response = await self._post(
+            f"/v1/transactions/{transaction_id}/{suffix}",
+            session.__dict__,
+        )
+        response.raise_for_status()
+        return self._json_object(response)
 
     async def complete(self, transaction_id: str, assertion: AuthorizationAssertion) -> TerminalToken:
-        response = await self.client.post(
+        response = await self._post(
             f"/v1/transactions/{transaction_id}/complete",
-            json=assertion.__dict__,
+            assertion.__dict__,
         )
         response.raise_for_status()
-        return TerminalToken(**response.json())
+        return TerminalToken(**self._json_object(response))
 
     async def close(self) -> None:
         await self.client.aclose()
+        await self.token_provider.close()
 
 
 class TerminalController:

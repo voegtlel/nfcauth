@@ -16,7 +16,8 @@ filesystem and a PostgreSQL enrollment database.
    `deploy/secrets/provider-signing-key.pem`.
 5. Generate a separate P-256 token-signing key as
    `deploy/secrets/token-signing-key.pem`.
-6. Configure the environment values used by `docker-compose.yml`.
+6. Configure the account-linking and terminal-token OIDC values used by
+   `docker-compose.yml`.
 
 The manifest's `registration_lifetime_days` must match
 `NFCAUTH_CREDENTIAL_LIFETIME_DAYS` (548 by default). The bridge extends an
@@ -37,17 +38,25 @@ control. The default Compose configuration builds and tags
 `nfcauth-bridge:4.0.0`; set `NFCAUTH_BRIDGE_IMAGE` to a registry reference if
 you publish the image separately.
 
-The certificate key must be available to the bridge because it signs typed NFC
-requests. The certificate presented by the public HTTPS endpoint must be the
-same leaf certificate returned in signed manifests and NFC messages. Use a
-dedicated provider origin rather than a CDN that hides the TLS private key.
+The provider signing key must be available to the bridge because it signs typed
+NFC requests. Its certificate must be a currently valid Web-PKI `serverAuth`
+certificate for the provider origin and is pinned during phone registration.
+The HTTPS reverse proxy may use a separate valid TLS certificate for the same
+origin, so an independently deployed Traefik, nginx, cloud ingress or Caddy does
+not need access to the bridge's protocol-signing private key.
 
-## Public and terminal origins
+## HTTPS reverse proxy
 
-The example Caddy configuration uses two DNS names. The public hostname serves
-discovery, privacy, OIDC callbacks and registration. The terminal hostname
-requires a client certificate and exposes only transaction and health routes.
-Both reverse proxy to an internal-only bridge port. Do not expose port 8080.
+The example Caddy configuration exposes one ordinary HTTPS origin for provider
+discovery, callbacks, registration and authenticated terminal transactions.
+Terminal routes validate OAuth bearer tokens inside the bridge, so the reverse
+proxy does not authenticate terminals or inject trusted identity headers.
+
+Another proxy may run in a separate deployment. Route the provider origin to
+the bridge, preserve the `Authorization` header, and keep bridge port 8080
+private to that proxy. If the proxy-to-bridge hop crosses a network boundary,
+protect it with a private network, service mesh or backend TLS. Do not expose
+port 8080 directly.
 
 ## Run
 
@@ -87,9 +96,8 @@ certificate and hostname still validate from the bridge. Otherwise, use its
 normal public HTTPS URL; the bridge has outbound access for that purpose.
 
 The Authentik override does not weaken the public boundary: Caddy still owns
-the provider HTTPS endpoint and the separate terminal mTLS endpoint. Do not
-publish the bridge's port 8080 or allow clients to supply the trusted terminal
-identity headers directly.
+the provider HTTPS endpoint and terminal JWTs are still validated by the
+bridge. Do not publish the bridge's port 8080.
 
 Verify `/health/ready`, fetch and validate the signed well-known document, then
 perform an enrollment before provisioning a terminal. Back up PostgreSQL and

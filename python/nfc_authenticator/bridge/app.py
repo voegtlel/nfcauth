@@ -1,19 +1,22 @@
 from __future__ import annotations
 
 from dataclasses import asdict
-from typing import Annotated, Any
+from typing import Any
 
 import httpx
-from fastapi import Depends, FastAPI, Header, HTTPException, Query
+from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.responses import RedirectResponse
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, ConfigDict, Field
 
 from nfc_authenticator.protocol_v4 import AuthorizationAssertion, SessionBinding
 
 from .models import TerminalIdentity
+from .ports import TerminalAuthenticator
 from .registration import RegistrationCoordinator
 from .renewal import RenewalCoordinator
 from .service import BridgeService
+from .terminal_auth import TerminalAuthenticationError, TerminalAuthenticationUnavailable
 
 
 class TransactionCreate(BaseModel):
@@ -71,7 +74,7 @@ class RenewalComplete(BaseModel):
 def create_app(
     *,
     service: BridgeService,
-    terminals: dict[str, TerminalIdentity],
+    terminal_authenticator: TerminalAuthenticator,
     manifest: dict[str, Any],
     registrations: RegistrationCoordinator | None = None,
     renewals: RenewalCoordinator | None = None,
@@ -83,16 +86,19 @@ def create_app(
         redoc_url=None,
     )
 
+    bearer = HTTPBearer(auto_error=False)
+
     async def terminal(
-        terminal_id: Annotated[str, Header(alias="X-NFCAuth-Terminal-ID")],
-        certificate_fingerprint: Annotated[str, Header(alias="X-NFCAuth-Terminal-Cert-SHA256")],
+        credentials: HTTPAuthorizationCredentials | None = Depends(bearer),  # noqa: B008
     ) -> TerminalIdentity:
-        # These headers must be stripped and injected by the provider-controlled
-        # mTLS reverse proxy. The bridge port must not be internet-accessible.
-        value = terminals.get(terminal_id)
-        if value is None or value.key_fingerprint != certificate_fingerprint:
-            raise HTTPException(401, "Unknown terminal mTLS identity")
-        return value
+        if credentials is None or credentials.scheme.lower() != "bearer":
+            raise HTTPException(401, "Terminal bearer token is required", headers={"WWW-Authenticate": "Bearer"})
+        try:
+            return await terminal_authenticator.authenticate(credentials.credentials)
+        except TerminalAuthenticationUnavailable as error:
+            raise HTTPException(503, "Terminal authentication is temporarily unavailable") from error
+        except TerminalAuthenticationError as error:
+            raise HTTPException(401, "Invalid terminal bearer token", headers={"WWW-Authenticate": "Bearer"}) from error
 
     @app.get("/.well-known/nfc-authenticator")
     async def provider_manifest() -> dict[str, Any]:

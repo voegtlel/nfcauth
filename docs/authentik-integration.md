@@ -1,8 +1,8 @@
 # Optional Authentik integration
 
-Authentik is not required. Registration uses the generic OIDC adapter, while
-terminal-token issuance can use either bridge-signed JWTs or RFC 8693 token
-exchange.
+Authentik is not required. Registration and terminal authentication use generic
+OIDC/OAuth adapters, while the user token returned after NFC can use either
+bridge-signed JWTs or RFC 8693 token exchange.
 
 ## Account linking
 
@@ -29,6 +29,26 @@ and apply `deploy/docker-compose.authentik.yml` in addition to the base Compose
 file. The base stack deliberately gives only the bridge outbound network
 access; PostgreSQL and the bridge's inbound port remain private.
 
+## Terminal machine-to-machine authentication
+
+Create an OAuth2 provider that permits the client-credentials grant and issues
+asymmetrically signed access tokens. Configure the bridge with that provider's
+exact issuer, JWKS URI and an audience dedicated to the bridge. Add an OAuth
+scope mapping for `nfcauth:terminal` and set access-token validity to no more
+than ten minutes.
+
+Give every physical terminal a distinct service account and app password. A
+terminal exchanges those credentials at Authentik's token endpoint, then sends
+the returned JWT to the bridge as `Authorization: Bearer ...`. Put the stable
+JWT `sub` value in `deploy/config/terminals.json`; the bridge derives the signed
+terminal ID from that claim and independently caps audiences, scopes and
+assurance using the registry. Never share one provider client secret across all
+terminals when per-terminal revocation and audit are required.
+
+The terminal M2M token authorizes calls to the bridge only. It is not the user
+access token returned after NFC approval. Use distinct audiences and scopes so
+the two token classes cannot be confused.
+
 ## Token exchange
 
 Authentik 2026.8 or newer can be configured to trust the bridge as a federated
@@ -39,9 +59,11 @@ validity set to ten minutes and must explicitly trust the exchange provider.
 The adapter creates a 60-second subject assertion only after successful NFC
 verification and exchanges it inside the bridge. The assertion is never given
 to the terminal. Authentik returns a bearer access token; its current key
-binding does not sender-constrain token-exchange access tokens. Sensitive APIs
-should therefore additionally require terminal mTLS or place the API behind a
-provider gateway that validates terminal identity.
+binding does not sender-constrain token-exchange access tokens. Keep the result
+in terminal memory, use narrow audiences and scopes, and send it only over
+authenticated encrypted transport. Deployments that require sender-constrained
+downstream tokens need an additional API-gateway or proof-of-possession
+mechanism.
 
 Token exchange is optional. Leaving all `TOKEN_EXCHANGE_*` values empty makes
 the bridge issue its own ten-minute ES256 JWTs instead; protected APIs must then

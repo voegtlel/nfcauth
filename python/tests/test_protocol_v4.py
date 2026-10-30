@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import base64
+import json
+import time
 from datetime import UTC, datetime, timedelta
 
+import httpx
 import jwt
 import pytest
 from cryptography import x509
@@ -12,6 +15,7 @@ from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
 from fastapi.testclient import TestClient
 
 from nfc_authenticator.bridge.app import create_app
+from nfc_authenticator.bridge.config import load_terminals
 from nfc_authenticator.bridge.issuers import LocalJwtTokenIssuer
 from nfc_authenticator.bridge.models import Credential, Subject, TerminalIdentity
 from nfc_authenticator.bridge.registration import REGISTRATION_DOMAIN, RegistrationAttempts, RegistrationCoordinator
@@ -19,6 +23,7 @@ from nfc_authenticator.bridge.renewal import RenewalAttempts, RenewalCoordinator
 from nfc_authenticator.bridge.security import CertificateRequestSigner, verify_signed_request
 from nfc_authenticator.bridge.service import BridgeService
 from nfc_authenticator.bridge.stores import MemoryEnrollmentStore, MemoryTransactionStore
+from nfc_authenticator.bridge.terminal_auth import OidcTerminalAuthenticator, TerminalAuthenticationError
 from nfc_authenticator.protocol_v4 import AuthorizationAssertion, SessionBinding, public_key_der_b64
 from nfc_authenticator.terminal import validate_protected_api_url
 
@@ -69,7 +74,7 @@ async def test_two_tap_authorization_issues_one_ten_minute_token(tmp_path) -> No
     enrollments = MemoryEnrollmentStore()
     transactions = MemoryTransactionStore()
     signer = certificate_signer(tmp_path)
-    terminal = TerminalIdentity("terminal-1", "f" * 64, frozenset({"inventory"}), frozenset({"inventory.read"}))
+    terminal = TerminalIdentity("terminal-1", frozenset({"inventory"}), frozenset({"inventory.read"}))
     credential = Credential(
         "credential-1",
         "https://id.example.test",
@@ -147,9 +152,22 @@ async def test_terminal_cannot_escalate_scopes(tmp_path) -> None:
         certificate_signer(tmp_path),
         LocalJwtTokenIssuer("https://auth.example.test", key),
     )
-    terminal = TerminalIdentity("terminal-1", "f" * 64, frozenset({"api"}), frozenset({"read"}))
+    terminal = TerminalIdentity("terminal-1", frozenset({"api"}), frozenset({"read"}))
     with pytest.raises(PermissionError):
         await service.create_transaction(terminal, "api", ("read", "admin"), "Escalate", "possession")
+
+
+class FakeTerminalAuthenticator:
+    def __init__(self, terminal: TerminalIdentity) -> None:
+        self.terminal = terminal
+
+    async def authenticate(self, access_token: str) -> TerminalIdentity:
+        if access_token != "valid-terminal-token":
+            raise TerminalAuthenticationError("invalid")
+        return self.terminal
+
+    async def close(self) -> None:
+        pass
 
 
 def test_bridge_api_authenticates_terminal_and_signs_manifest(tmp_path) -> None:
@@ -157,7 +175,7 @@ def test_bridge_api_authenticates_terminal_and_signs_manifest(tmp_path) -> None:
         serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()
     )
     signer = certificate_signer(tmp_path)
-    terminal = TerminalIdentity("terminal-1", "f" * 64, frozenset({"api"}), frozenset({"read"}))
+    terminal = TerminalIdentity("terminal-1", frozenset({"api"}), frozenset({"read"}))
     manifest = {"protocol_version": 4, "service_id": "example"}
     service = BridgeService(
         "example",
@@ -168,7 +186,13 @@ def test_bridge_api_authenticates_terminal_and_signs_manifest(tmp_path) -> None:
         signer,
         LocalJwtTokenIssuer("https://auth.example.test", token_key),
     )
-    client = TestClient(create_app(service=service, terminals={terminal.terminal_id: terminal}, manifest=manifest))
+    client = TestClient(
+        create_app(
+            service=service,
+            terminal_authenticator=FakeTerminalAuthenticator(terminal),
+            manifest=manifest,
+        )
+    )
     signed_manifest = client.get("/.well-known/nfc-authenticator")
     assert signed_manifest.status_code == 200
     assert signed_manifest.json()["manifest"] == manifest
@@ -176,17 +200,114 @@ def test_bridge_api_authenticates_terminal_and_signs_manifest(tmp_path) -> None:
         "/v1/transactions",
         json={"audience": "api", "scopes": ["read"], "action": "Read", "assurance": "possession"},
     )
-    assert unauthorized.status_code == 422
+    assert unauthorized.status_code == 401, unauthorized.text
+    assert unauthorized.headers["www-authenticate"] == "Bearer"
     created = client.post(
         "/v1/transactions",
-        headers={
-            "X-NFCAuth-Terminal-ID": terminal.terminal_id,
-            "X-NFCAuth-Terminal-Cert-SHA256": terminal.key_fingerprint,
-        },
+        headers={"Authorization": "Bearer valid-terminal-token"},
         json={"audience": "api", "scopes": ["read"], "action": "Read", "assurance": "possession"},
     )
     assert created.status_code == 201
     assert created.json()["transaction_id"]
+
+
+@pytest.mark.asyncio
+async def test_oidc_terminal_authenticator_validates_token_and_derives_subject_identity() -> None:
+    terminal = TerminalIdentity("terminal-subject-1", frozenset({"api"}), frozenset({"read"}))
+    signing_key = ec.generate_private_key(ec.SECP256R1())
+    jwk = json.loads(jwt.algorithms.ECAlgorithm.to_jwk(signing_key.public_key()))
+    jwk.update({"kid": "terminal-key-1", "alg": "ES256", "use": "sig"})
+
+    async def jwks(request: httpx.Request) -> httpx.Response:
+        assert str(request.url) == "https://id.example.test/jwks/"
+        return httpx.Response(200, json={"keys": [jwk]})
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(jwks))
+    authenticator = OidcTerminalAuthenticator(
+        issuer="https://id.example.test/application/o/terminal/",
+        audience="nfcauth-bridge",
+        jwks_uri="https://id.example.test/jwks/",
+        terminals={terminal.terminal_id: terminal},
+        client=client,
+    )
+    now = int(time.time())
+    token = jwt.encode(
+        {
+            "iss": "https://id.example.test/application/o/terminal/",
+            "sub": terminal.terminal_id,
+            "aud": "nfcauth-bridge",
+            "scope": "nfcauth:terminal",
+            "iat": now,
+            "exp": now + 300,
+        },
+        signing_key,
+        algorithm="ES256",
+        headers={"kid": "terminal-key-1"},
+    )
+    assert await authenticator.authenticate(token) == terminal
+
+    wrong_scope = jwt.encode(
+        {
+            "iss": "https://id.example.test/application/o/terminal/",
+            "sub": terminal.terminal_id,
+            "aud": "nfcauth-bridge",
+            "scope": "unrelated",
+            "iat": now,
+            "exp": now + 300,
+        },
+        signing_key,
+        algorithm="ES256",
+        headers={"kid": "terminal-key-1"},
+    )
+    with pytest.raises(TerminalAuthenticationError):
+        await authenticator.authenticate(wrong_scope)
+
+    overlong = jwt.encode(
+        {
+            "iss": "https://id.example.test/application/o/terminal/",
+            "sub": terminal.terminal_id,
+            "aud": "nfcauth-bridge",
+            "scope": "nfcauth:terminal",
+            "iat": now,
+            "exp": now + 601,
+        },
+        signing_key,
+        algorithm="ES256",
+        headers={"kid": "terminal-key-1"},
+    )
+    with pytest.raises(TerminalAuthenticationError):
+        await authenticator.authenticate(overlong)
+    await client.aclose()
+
+
+def test_terminal_registry_rejects_legacy_certificate_identity_and_duplicate_subjects(tmp_path) -> None:
+    path = tmp_path / "terminals.json"
+    path.write_text(
+        json.dumps(
+            {
+                "terminals": [
+                    {
+                        "subject": "terminal-subject-1",
+                        "certificate_fingerprint": "f" * 64,
+                        "allowed_audiences": ["api"],
+                        "allowed_scopes": ["read"],
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError):
+        load_terminals(path)
+
+    entry = {
+        "subject": "terminal-subject-1",
+        "allowed_audiences": ["api"],
+        "allowed_scopes": ["read"],
+    }
+    path.write_text(json.dumps({"terminals": [entry, entry]}), encoding="utf-8")
+    with pytest.raises(ValueError):
+        load_terminals(path)
 
 
 class FakeOidc:
