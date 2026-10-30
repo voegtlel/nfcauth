@@ -28,8 +28,8 @@ authentication resets the server-side expiry to the configured lifetime.
 Manual renewal is deliberately user initiated:
 
 1. The phone re-fetches the signed provider manifest over HTTPS, validates the
-   current Web-PKI identity, confirms the manifest and encryption identity are
-   unchanged, and rechecks the privacy-policy URL.
+   current Web-PKI identity, confirms the signed manifest is unchanged, and
+   rechecks the privacy-policy URL.
 2. The bridge creates a 120-second, one-use renewal document containing the
    credential, service, profile, current expiry, proposed expiry and random
    challenge.

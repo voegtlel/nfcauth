@@ -19,13 +19,11 @@ class AuthDatabase(context: Context) : SQLiteOpenHelper(context, "auth-v4.db", n
               service_name TEXT NOT NULL,
               operator_name TEXT NOT NULL,
               credential_id TEXT NOT NULL,
-              user_alias TEXT,
               privacy_policy_url TEXT NOT NULL,
               privacy_notice_version TEXT NOT NULL,
               requested_fields TEXT NOT NULL,
               purposes TEXT NOT NULL,
               deletion_contact TEXT NOT NULL,
-              encryption_fingerprint TEXT NOT NULL,
               certificate_fingerprint TEXT NOT NULL,
               verified_domain TEXT NOT NULL,
               manifest_hash TEXT NOT NULL,
@@ -64,13 +62,11 @@ class AuthDatabase(context: Context) : SQLiteOpenHelper(context, "auth-v4.db", n
             put("service_name", reader.serviceName)
             put("operator_name", reader.operatorName)
             put("credential_id", reader.credentialId)
-            if (reader.alias == null) putNull("user_alias") else put("user_alias", reader.alias)
             put("privacy_policy_url", reader.privacyPolicyUrl)
             put("privacy_notice_version", reader.privacyNoticeVersion)
             put("requested_fields", JSONArray(reader.requestedFields).toString())
             put("purposes", JSONObject(reader.purposes).toString())
             put("deletion_contact", reader.deletionUrlOrContact)
-            put("encryption_fingerprint", reader.encryptionKeyFingerprint)
             put("certificate_fingerprint", reader.certificateFingerprint)
             put("verified_domain", reader.verifiedDomain)
             put("manifest_hash", reader.manifestHash)
@@ -115,13 +111,11 @@ class AuthDatabase(context: Context) : SQLiteOpenHelper(context, "auth-v4.db", n
         val fields = (0 until fieldsJson.length()).map(fieldsJson::getString)
         val purposeJson = JSONObject(string("purposes"))
         val purposes = purposeJson.keys().asSequence().associateWith(purposeJson::getString)
-        val aliasIndex = getColumnIndexOrThrow("user_alias")
         ReaderInfo(
             string("service_origin"), string("service_id"), string("service_name"),
             string("operator_name"), string("credential_id"), string("authentication_profile"),
-            if (isNull(aliasIndex)) null else getString(aliasIndex),
             string("privacy_policy_url"), string("privacy_notice_version"), fields, purposes,
-            string("deletion_contact"), string("encryption_fingerprint"),
+            string("deletion_contact"),
             string("certificate_fingerprint"), string("verified_domain"),
             string("manifest_hash"), getLong(getColumnIndexOrThrow("approved_at")),
             getLong(getColumnIndexOrThrow("registration_expires_at")),

@@ -6,7 +6,6 @@
   "operator_name": "Example Operator GmbH",
   "privacy_policy_url": "https://auth.example.com/privacy",
   "privacy_notice_version": "1",
-  "privacy_notice_material_change": false,
   "requested_fields": ["authentication_public_key", "provider_assigned_credential_id"],
   "purposes": {
     "authentication_public_key": "Verify approvals made by this phone",
@@ -18,6 +17,5 @@
   "allowed_scopes": ["inventory.read"],
   "registration_endpoint": "https://auth.example.com/v1/registrations",
   "renewal_endpoint": "https://auth.example.com/v1/registration-renewals",
-  "registration_lifetime_days": 548,
-  "encryption_public_key": "REPLACE_WITH_BASE64_DER_P256_PUBLIC_KEY"
+  "registration_lifetime_days": 548
 }

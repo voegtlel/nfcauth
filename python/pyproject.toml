@@ -30,6 +30,7 @@ pn532 = [
     "adafruit-circuitpython-busdevice>=5.2.11",
 ]
 dev = [
+  "mypy>=1.13,<2",
   "pytest>=8,<9",
   "pytest-asyncio>=0.24,<1",
   "ruff",

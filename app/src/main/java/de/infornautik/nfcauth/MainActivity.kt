@@ -169,10 +169,6 @@ class MainActivity : AppCompatActivity() {
                 append(service.purposes[field].orEmpty())
             }
             append("\n\n")
-            append(getString(R.string.service_details_encryption_fingerprint))
-            append("\n")
-            append(service.encryptionKeyFingerprint)
-            append("\n\n")
             appendLink(
                 getString(R.string.registration_view_privacy_policy),
                 service.privacyPolicyUrl,
@@ -225,12 +221,14 @@ class MainActivity : AppCompatActivity() {
 
     private fun deleteLocalRegistration(service: ReaderInfo) {
         try {
-            keyManager.deleteServiceCredentials(
-                service.serviceOrigin,
-                service.serviceId,
-                service.authenticationProfile,
+            check(
+                authDatabase.deleteReader(
+                    service.serviceOrigin,
+                    service.serviceId,
+                    service.authenticationProfile,
+                ),
             )
-            authDatabase.deleteReader(
+            keyManager.deleteServiceCredentials(
                 service.serviceOrigin,
                 service.serviceId,
                 service.authenticationProfile,
@@ -257,5 +255,5 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun deletionUri(value: String): String =
-        if (value.contains("@") && !value.startsWith("mailto:")) "mailto:$value" else value
+        if (value.contains("@") && !value.startsWith("mailto:", ignoreCase = true)) "mailto:$value" else value
 }

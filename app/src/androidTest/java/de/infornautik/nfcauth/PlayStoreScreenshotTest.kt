@@ -7,7 +7,6 @@ import android.graphics.Bitmap
 import android.os.Environment
 import android.os.SystemClock
 import android.provider.MediaStore
-import android.util.Base64
 import androidx.test.core.app.ActivityScenario
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
@@ -26,9 +25,6 @@ import org.json.JSONObject
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
-import java.security.KeyPairGenerator
-import java.security.Signature
-import java.security.spec.ECGenParameterSpec
 
 @RunWith(AndroidJUnit4::class)
 class PlayStoreScreenshotTest {
@@ -176,16 +172,14 @@ class PlayStoreScreenshotTest {
                         operatorName = "Example Operator",
                         credentialId = "service-specific-user",
                         authenticationProfile = ServiceManifestParser.PROFILE_BIOMETRIC,
-                        alias = "Personal phone",
                         privacyPolicyUrl = PRIVACY_POLICY_URL,
                         privacyNoticeVersion = "2026-07-29",
                         requestedFields = REQUESTED_FIELDS,
                         purposes = PURPOSES,
                         deletionUrlOrContact = "privacy@example.com",
-                        encryptionKeyFingerprint = EXAMPLE_ENCRYPTION_FINGERPRINT,
                         certificateFingerprint = EXAMPLE_SIGNING_FINGERPRINT,
                         verifiedDomain = "voegtlel.github.io",
-                        manifestHash = EXAMPLE_MANIFEST_HASH,
+                        manifestHash = ServiceManifestParser.hash(JSONObject(exampleManifest())),
                         approvedAt = EXAMPLE_APPROVAL_TIME,
                         registrationExpiresAt = EXAMPLE_REGISTRATION_EXPIRY,
                         allowedAudiences = listOf("https://api.example.com"),
@@ -197,10 +191,6 @@ class PlayStoreScreenshotTest {
     }
 
     private fun exampleManifest(): String {
-        val generator = KeyPairGenerator.getInstance("EC").apply {
-            initialize(ECGenParameterSpec("secp256r1"))
-        }
-        val encryptionKeyPair = generator.generateKeyPair()
         val manifest = ServiceManifest(
             serviceOrigin = "https://voegtlel.github.io",
             serviceId = "example.service",
@@ -220,8 +210,6 @@ class PlayStoreScreenshotTest {
             registrationEndpoint = "https://voegtlel.github.io/v1/registrations",
             renewalEndpoint = "https://voegtlel.github.io/v1/registrations/renew",
             registrationLifetimeDays = REGISTRATION_LIFETIME_DAYS,
-            encryptionPublicKey = encryptionKeyPair.public.encoded.toBase64(),
-            privacyNoticeMaterialChange = false,
         )
         return JSONObject().apply {
             put("service_origin", manifest.serviceOrigin)
@@ -240,12 +228,8 @@ class PlayStoreScreenshotTest {
             put("registration_endpoint", manifest.registrationEndpoint)
             put("renewal_endpoint", manifest.renewalEndpoint)
             put("registration_lifetime_days", manifest.registrationLifetimeDays)
-            put("encryption_public_key", manifest.encryptionPublicKey)
-            put("privacy_notice_material_change", manifest.privacyNoticeMaterialChange)
         }.toString()
     }
-
-    private fun ByteArray.toBase64(): String = Base64.encodeToString(this, Base64.NO_WRAP)
 
     companion object {
         private const val EXAMPLE_SERVICE_NAME = "Example Service"
@@ -257,12 +241,8 @@ class PlayStoreScreenshotTest {
         private const val REGISTRATION_LIFETIME_DAYS = 365
         private const val EXAMPLE_REGISTRATION_EXPIRY =
             EXAMPLE_APPROVAL_TIME + REGISTRATION_LIFETIME_DAYS * 24L * 60L * 60L * 1_000L
-        private const val EXAMPLE_ENCRYPTION_FINGERPRINT =
-            "48d7af09786b935482e8be7444f2c5fd9f85164876744f554ef59f74d6616d31"
         private const val EXAMPLE_SIGNING_FINGERPRINT =
             "b6cb527ec0e218fb76dc6f8efab0983b9292540a5fe546a59cb8fb39213243a6"
-        private const val EXAMPLE_MANIFEST_HASH =
-            "951dc64f2a4cf988a417681d5c23a6fb7979922bd95861711069e8be61455fae"
         private val REQUESTED_FIELDS = listOf(
             ServiceManifestParser.FIELD_PROVIDER_ASSIGNED_CREDENTIAL_ID,
             ServiceManifestParser.FIELD_AUTHENTICATION_PUBLIC_KEY,

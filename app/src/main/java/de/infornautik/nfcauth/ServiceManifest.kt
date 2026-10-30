@@ -1,14 +1,9 @@
 package de.infornautik.nfcauth
 
-import android.util.Base64
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.URI
-import java.security.KeyFactory
 import java.security.MessageDigest
-import java.security.PublicKey
-import java.security.interfaces.ECPublicKey
-import java.security.spec.X509EncodedKeySpec
 import java.util.Locale
 
 data class ServiceManifest(
@@ -27,14 +22,11 @@ data class ServiceManifest(
     val registrationEndpoint: String,
     val renewalEndpoint: String,
     val registrationLifetimeDays: Int,
-    val encryptionPublicKey: String,
-    val privacyNoticeMaterialChange: Boolean,
 )
 
 data class VerifiedServiceManifest(
     val manifest: ServiceManifest,
     val manifestHash: String,
-    val encryptionKeyFingerprint: String,
     val certificateFingerprint: String,
     val verifiedDomain: String,
 )
@@ -49,8 +41,27 @@ object ServiceManifestParser {
     const val PROFILE_BIOMETRIC = "biometric"
     private val fields = setOf(FIELD_AUTHENTICATION_PUBLIC_KEY, FIELD_PROVIDER_ASSIGNED_CREDENTIAL_ID)
     private val profiles = setOf(PROFILE_POSSESSION, PROFILE_BIOMETRIC)
+    private val manifestKeys = setOf(
+        "protocol_version",
+        "service_origin",
+        "service_id",
+        "service_name",
+        "operator_name",
+        "privacy_policy_url",
+        "privacy_notice_version",
+        "requested_fields",
+        "purposes",
+        "data_deletion_url_or_contact",
+        "supported_assurance_profiles",
+        "allowed_audiences",
+        "allowed_scopes",
+        "registration_endpoint",
+        "renewal_endpoint",
+        "registration_lifetime_days",
+    )
 
     fun parse(value: JSONObject): ServiceManifest = try {
+        require(value.keys().asSequence().toSet() == manifestKeys)
         require(value.getInt("protocol_version") == PROTOCOL_VERSION)
         val origin = canonicalOrigin(value.getString("service_origin"))
         val policy = httpsUrl(value.getString("privacy_policy_url"))
@@ -83,16 +94,14 @@ object ServiceManifestParser {
             value.getString("privacy_notice_version").also { require(it.isNotBlank()) },
             requested,
             purposes,
-            value.getString("data_deletion_url_or_contact").also { require(it.isNotBlank()) },
+            deletionUrlOrContact(value.getString("data_deletion_url_or_contact")),
             supportedProfiles,
             audiences.distinct().sorted(),
             scopes.distinct().sorted(),
             registration,
             renewal,
             registrationLifetimeDays,
-            value.getString("encryption_public_key"),
-            value.optBoolean("privacy_notice_material_change", false),
-        ).also { parseEncryptionKey(it.encryptionPublicKey) }
+        )
     } catch (error: Exception) {
         throw ManifestValidationException("The provider manifest is missing or malformed.", error)
     }
@@ -100,16 +109,6 @@ object ServiceManifestParser {
     fun hash(value: JSONObject): String = sha256(
         AuthorizationRequestVerifier.canonical(value).toByteArray(Charsets.UTF_8),
     )
-
-    fun parseEncryptionKey(value: String): PublicKey {
-        val key = KeyFactory.getInstance("EC").generatePublic(
-            X509EncodedKeySpec(Base64.decode(value, Base64.NO_WRAP)),
-        )
-        require(key is ECPublicKey && key.params.curve.field.fieldSize == 256)
-        return key
-    }
-
-    fun fingerprint(publicKey: PublicKey) = sha256(publicKey.encoded)
 
     fun displayName(field: String) = when (field) {
         FIELD_AUTHENTICATION_PUBLIC_KEY -> "Profile-specific public authentication key"
@@ -141,7 +140,20 @@ object ServiceManifestParser {
         return value
     }
 
+    private fun deletionUrlOrContact(value: String): String {
+        require(value == value.trim() && value.length in 1..2048)
+        val address = when {
+            EMAIL_ADDRESS.matches(value) -> value
+            value.startsWith("mailto:", ignoreCase = true) -> value.substringAfter(':')
+            else -> return httpsUrl(value)
+        }
+        require(EMAIL_ADDRESS.matches(address))
+        return value
+    }
+
     private fun JSONArray.strings() = (0 until length()).map(::getString)
     private fun sha256(value: ByteArray) = MessageDigest.getInstance("SHA-256").digest(value)
         .joinToString("") { "%02x".format(it.toInt() and 0xff) }
+
+    private val EMAIL_ADDRESS = Regex("^[A-Za-z0-9.!#$%&'*+/=?^_{}|~-]+@[A-Za-z0-9.-]+$")
 }

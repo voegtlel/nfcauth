@@ -64,9 +64,6 @@ class RegistrationActivity : AppCompatActivity() {
             val value = VerifiedServiceManifest(
                 manifest,
                 ServiceManifestParser.hash(document),
-                ServiceManifestParser.fingerprint(
-                    ServiceManifestParser.parseEncryptionKey(manifest.encryptionPublicKey),
-                ),
                 "preview-certificate-fingerprint",
                 requireNotNull(URI(manifest.serviceOrigin).host),
             )
@@ -105,7 +102,6 @@ class RegistrationActivity : AppCompatActivity() {
                 val value = VerifiedServiceManifest(
                     manifest,
                     ServiceManifestParser.hash(document),
-                    ServiceManifestParser.fingerprint(ServiceManifestParser.parseEncryptionKey(manifest.encryptionPublicKey)),
                     signed.certificateFingerprint,
                     signed.verifiedDomain,
                 )
@@ -274,13 +270,11 @@ class RegistrationActivity : AppCompatActivity() {
                     manifest.operatorName,
                     response.getString("credential_id"),
                     selectedProfile!!,
-                    null,
                     manifest.privacyPolicyUrl,
                     manifest.privacyNoticeVersion,
                     manifest.requestedFields,
                     manifest.purposes,
                     manifest.deletionUrlOrContact,
-                    value.encryptionKeyFingerprint,
                     value.certificateFingerprint,
                     value.verifiedDomain,
                     value.manifestHash,

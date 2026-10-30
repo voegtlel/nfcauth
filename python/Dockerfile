@@ -1,10 +1,14 @@
 FROM python:3.12-slim AS builder
 
+ARG UV_VERSION=0.13.5
 ENV PIP_DISABLE_PIP_VERSION_CHECK=1
+ENV VIRTUAL_ENV=/opt/venv
 WORKDIR /build
-COPY pyproject.toml README.md ./
+COPY pyproject.toml uv.lock README.md ./
 COPY nfc_authenticator ./nfc_authenticator
-RUN python -m venv /opt/venv && /opt/venv/bin/pip install --no-cache-dir .
+RUN python -m pip install --no-cache-dir "uv==${UV_VERSION}" \
+    && python -m venv /opt/venv \
+    && uv sync --frozen --no-dev --no-editable --active
 
 FROM python:3.12-slim
 ENV PATH="/opt/venv/bin:$PATH" \

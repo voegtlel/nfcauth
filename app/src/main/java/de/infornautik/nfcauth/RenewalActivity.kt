@@ -61,11 +61,9 @@ class RenewalActivity : AppCompatActivity() {
                 val verified = VerifiedServiceManifest(
                     manifest,
                     current.manifestHash,
-                    ServiceManifestParser.fingerprint(ServiceManifestParser.parseEncryptionKey(manifest.encryptionPublicKey)),
                     signed.certificateFingerprint,
                     signed.verifiedDomain,
                 )
-                require(verified.encryptionKeyFingerprint == current.encryptionKeyFingerprint)
                 verifiedManifest = verified
                 startRenewal()
             } catch (_: Exception) {

@@ -17,7 +17,7 @@
 <body>
   <main>
     <h1>NFC MFC Authenticator Privacy Policy</h1>
-    <p class="meta"><strong>Effective:</strong> October 29, 2026<br>
+    <p class="meta"><strong>Effective:</strong> October 30, 2026<br>
       <strong>Developer:</strong> Lukas Voegtle</p>
 
     <h2>Overview</h2>
@@ -32,7 +32,7 @@
     <h2>Data stored locally</h2>
     <p>For each approved service, the app stores the service identity and
       verification status, approved data fields and purposes, privacy-policy URL
-      and notice version, deletion instructions, cryptographic key fingerprints,
+      and notice version, deletion instructions, provider certificate fingerprint,
       approval and expiration times, a service-issued opaque credential reference, and
       service- and profile-specific cryptographic credentials.
       Credential references and signing keys are never reused across services.</p>
@@ -40,7 +40,7 @@
     <h2>Transfers to independent services</h2>
     <p>Before registration, the app shows the recipient, operator,
       identity-verification status, exact requested fields, purpose of every
-      field, policy and deletion links, and encryption identity. Registration
+      field, policy and deletion links, and authentication profile. Registration
       occurs only after <strong>Agree and register</strong>. All identifying and
       authentication payloads are authenticated and end-to-end encrypted
       directly to the selected service. The developer and intermediaries cannot
@@ -48,8 +48,8 @@
       approved.</p>
     <p>Manual renewal requires a separate confirmation and sends only a
       one-time proof signed by the already approved service-specific credential.
-      The app rechecks the provider identity, signed disclosure, encryption key,
-      and policy before offering renewal.</p>
+      The app rechecks the provider certificate identity, signed disclosure, and
+      policy before offering renewal.</p>
     <p>The app makes a limited HTTPS request to confirm that a service-provided
       privacy-policy URL is accessible and to fetch signed provider metadata.
       It also uses HTTPS for a user-requested registration or renewal. The
