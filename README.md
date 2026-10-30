@@ -59,6 +59,9 @@ provide PC/SC, USB, serial, vendor-SDK, or entirely custom transports.
 - [Bridge deployment tutorial](docs/bridge-deployment.md)
 - [Optional Authentik integration](docs/authentik-integration.md)
 - [Security model and residual risks](docs/security-model-v4.md)
+- [Wire reference](docs/protocol-wire-v4.md)
+- [Operations and recovery](docs/operations.md)
+- [Release validation checklist](docs/release-validation.md)
 - [Google Play privacy and Data safety checklist](docs/google-play-data-safety.md)
 - [App privacy policy](docs/privacy-policy.html)
 

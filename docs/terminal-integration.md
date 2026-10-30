@@ -65,3 +65,41 @@ variable, send it only to the intended API, and discard it after the operation.
 Never place tokens, assertions, identifiers, public keys, APDUs or decrypted
 messages in logs. For biometric requests, tell the user to remove the phone,
 approve the request, and tap the same terminal again.
+
+## Configure and invoke the hardware-neutral example
+
+Install the package from the checkout into your terminal virtual environment:
+
+```shell
+python -m pip install ./python
+export NFCAUTH_TERMINAL_TOKEN_ENDPOINT=https://auth.example.com/application/o/token/
+export NFCAUTH_TERMINAL_OAUTH_CLIENT_ID=YOUR_TERMINAL_CLIENT_ID
+export NFCAUTH_TERMINAL_OAUTH_USERNAME=YOUR_TERMINAL_SERVICE_ACCOUNT
+export NFCAUTH_TERMINAL_BRIDGE_URL=https://nfc-auth.example.com
+export INVENTORY_API_URL=https://inventory.example.com/api/inventory
+```
+
+Inject `NFCAUTH_TERMINAL_OAUTH_APP_PASSWORD` from protected storage, not a
+literal command recorded in shell history. This example uses Authentik's
+username/app-password grant form; generic OAuth integrations should construct
+`OAuthClientCredentialsTokenProvider` with `client_secret` instead. Keep the
+terminal policy's audience/scope aligned with `inventory-api` and
+`inventory.read` in the example, or change those example constants together.
+
+The example is a library entry point, not a universal hardware launcher. From
+your application (with the repository's `examples/terminal` on the import path):
+
+```python
+import asyncio
+from authorize import authorize
+
+# my_transport is your NfcTransport implementation, connected to real hardware.
+asyncio.run(authorize(my_transport))
+```
+
+Transport `transceive` returns complete response bytes including SW1/SW2 and
+defaults to a two-second exchange timeout. Bridge HTTP calls default to five
+seconds. Waiting for the user/device is separate from a single APDU timeout;
+do not wait for biometric approval while holding an NFC exchange open. An
+interrupted/expired flow must restart; never automatically replay a completion
+request expecting a second token. See [wire details](protocol-wire-v4.md).

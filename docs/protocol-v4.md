@@ -59,7 +59,7 @@ authentication is part of the bridge's standard HTTPS API.
 ## NFC transport
 
 Each tap creates an independent P-256 ECDH exchange. HKDF-SHA-256 derives
-directional AES-256-GCM transport keys. AEAD associated data contains protocol
+an AES-256-GCM transport key per phase. Direction-separated AEAD associated data contains protocol
 version, session ID, direction, purpose and sequence number. Only ephemeral
 public keys, a random session ID and a phone challenge exist before encryption.
 
@@ -101,3 +101,7 @@ does not optimistically extend its local date after NFC. The displayed date is
 the last expiry confirmed during registration or explicit online renewal and
 may be earlier than the bridge's authoritative expiry. Explicit renewal safely
 refreshes it; no authorization decision relies on the phone's local date.
+
+For byte layouts, message schemas, signing inputs and APDU status handling, see
+the [v4 wire reference](protocol-wire-v4.md). For deployment constraints and
+recovery, see the [operations runbook](operations.md).

@@ -41,9 +41,14 @@ you publish the image separately.
 The provider signing key must be available to the bridge because it signs typed
 NFC requests. Its certificate must be a currently valid Web-PKI `serverAuth`
 certificate for the provider origin and is pinned during phone registration.
-The HTTPS reverse proxy may use a separate valid TLS certificate for the same
-origin, so an independently deployed Traefik, nginx, cloud ingress or Caddy does
-not need access to the bridge's protocol-signing private key.
+The HTTPS reverse proxy MUST present the exact same leaf certificate used by
+the bridge signer. The phone compares the DER certificates, not just their
+hostnames or public keys. A separate valid certificate for the same hostname
+will fail registration and online renewal. Independently deployed Traefik,
+nginx or Caddy must therefore be provisioned with the matching TLS certificate
+and private key (or equivalent key access). This is a current implementation
+constraint, not a requirement imposed by OAuth. Do not enable independent
+automatic TLS renewal at the proxy without coordinating the bridge signer.
 
 ## HTTPS reverse proxy
 
@@ -124,3 +129,67 @@ Authorization headers and request/response bodies out of logs. Apply the same
 rule to separately deployed Traefik, load balancers, tracing and error-reporting
 systems. If access logs are needed, log only explicitly allowlisted non-sensitive
 fields, such as route templates and status codes, never the raw request URI.
+
+## Complete setup and verification
+
+Run shell examples from the repository root on a Linux deployment host with
+Docker Compose v2 and OpenSSL installed. Obtain a public DNS name and a Web-PKI
+certificate covering it before starting; a self-signed certificate is not a
+production substitute. The certificate needs digital-signature usage and
+`serverAuth` EKU. The PEM chain starts with the leaf, followed by intermediates.
+
+```shell
+mkdir -p deploy/secrets
+chmod 700 deploy/secrets
+cp deploy/config/provider-manifest.example.json deploy/config/provider-manifest.json
+cp deploy/config/terminals.example.json deploy/config/terminals.json
+cp deploy/.env.example deploy/.env
+chmod 600 deploy/.env
+umask 077
+openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256 \
+  -out deploy/secrets/token-signing-key.pem
+```
+
+Copy the CA-issued chain and its matching unencrypted signing key to the paths
+listed above; never generate a replacement key for an existing certificate.
+Protect keys using ownership/ACLs: the non-root bridge container must be able
+to read them, while unrelated host users must not. Inspect the image's `id`
+using `docker compose --env-file deploy/.env -f deploy/docker-compose.yml run
+--rm --no-deps --entrypoint id bridge` after building it; do not assume its UID
+matches the host account. Grant only that container identity read access.
+
+Edit all placeholders in the manifest, terminal registry and `.env`. Keep the
+public origin, manifest endpoints, service ID and lifetime consistent. Set a
+strong database password, and configure the exact OIDC callback URI from the
+[Authentik guide](authentik-integration.md). Keep generated credentials out of
+shell history, screenshots and support bundles.
+
+```shell
+docker compose --env-file deploy/.env -f deploy/docker-compose.yml config -q
+docker compose --env-file deploy/.env -f deploy/docker-compose.yml up --build -d
+curl --fail https://nfc-auth.example.com/health/ready
+curl --fail https://nfc-auth.example.com/.well-known/nfc-authenticator
+```
+
+Replace the hostname. Expect `{"status":"ready"}` and a JSON manifest envelope
+with `manifest`, `signature_algorithm`, `signature`, and `certificate_chain`.
+Readiness is a basic process route, not an OIDC/database/token-exchange probe.
+The app's registration flow performs the certificate/signature checks; curl
+success alone does not validate the manifest signature.
+
+Complete the [release validation checklist](release-validation.md) before
+serving real users. In particular, prove the final token works at the intended
+API and is rejected for another audience or insufficient scope.
+
+## Process model
+
+Run one bridge process/worker and one instance. Registration attempts, renewal
+challenges and NFC transactions live in process-local Python variables, not
+PostgreSQL. A restart intentionally loses attempts, not enrollments; ask users
+to start again. Do not add `--workers`, replicas or round-robin load balancing.
+Sticky routing alone is not sufficient unless ALL browser, phone and terminal
+requests for the same attempt reach the owning process. Multi-instance support
+requires explicit transient-state routing or a redesigned shared transient
+store; it is not implemented by this Compose stack.
+
+See the [operations runbook](operations.md) for renewal, revocation and recovery.

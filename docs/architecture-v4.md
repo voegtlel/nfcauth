@@ -14,8 +14,8 @@ provider-operated bridge. The app developer operates no central service.
 | OIDC identity provider | Provider-selected | Links a phone credential to an account during online enrollment |
 | Protected API | Provider | Validates the final token's signature, audience, scope and expiry |
 
-The bridge has four replaceable ports: `IdentityProvider`, `TokenIssuer`,
-`EnrollmentStore`, and `RequestSigner`. Authentik is an adapter, not a core
+The bridge defines replaceable interfaces for `IdentityProvider`, `TokenIssuer`,
+`EnrollmentStore`, `RequestSigner`, and `TerminalAuthenticator`. Authentik is an adapter, not a core
 dependency. A local bridge-signed JWT issuer is included for deployments whose
 APIs trust the bridge directly.
 
