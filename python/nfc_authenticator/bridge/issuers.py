@@ -122,10 +122,21 @@ class Rfc8693TokenIssuer:
             )
             response.raise_for_status()
             value = response.json()
-        expires_in = int(value["expires_in"])
-        if expires_in > 600:
-            raise ValueError("Token exchange returned a token valid for more than ten minutes")
-        return IssuedToken(value["access_token"], value.get("token_type", "Bearer"), expires_in, value.get("scope", ""))
+        expires_in = value.get("expires_in")
+        maximum = min(600, int(lifetime.total_seconds()))
+        if type(expires_in) is not int or not 0 < expires_in <= maximum:
+            raise ValueError("Token exchange returned an invalid lifetime")
+        token_type = value.get("token_type")
+        if not isinstance(token_type, str) or token_type.lower() != "bearer":
+            raise ValueError("Token exchange must return a bearer token")
+        access_token = value.get("access_token")
+        if not isinstance(access_token, str) or not 0 < len(access_token) <= 16 * 1024:
+            raise ValueError("Token exchange returned an invalid access token")
+        # OAuth permits omitted scope when it is identical to the requested scope.
+        scope = value.get("scope", " ".join(scopes))
+        if not isinstance(scope, str) or not set(scope.split()) <= set(scopes):
+            raise ValueError("Token exchange broadened the approved scopes")
+        return IssuedToken(access_token, "Bearer", expires_in, scope)
 
 
 AuthentikTokenIssuer = Rfc8693TokenIssuer

@@ -21,7 +21,7 @@ class BiometricPromptActivity : AppCompatActivity() {
                 ServiceManifestParser.PROFILE_BIOMETRIC,
             )
         } catch (_: Exception) {
-            PendingAuthorizationStore.cancel()
+            PendingAuthorizationStore.cancel(pending.requestHash)
             return finish()
         }
         val prompt = BiometricPrompt(
@@ -29,7 +29,8 @@ class BiometricPromptActivity : AppCompatActivity() {
             ContextCompat.getMainExecutor(this),
             object : BiometricPrompt.AuthenticationCallback() {
                 override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
-                    val approved = PendingAuthorizationStore.get() ?: return finish()
+                    val approved = pending
+                    if (PendingAuthorizationStore.get()?.requestHash != approved.requestHash) return finish()
                     try {
                         val unsigned = JSONObject()
                             .put("protocol_version", 4)
@@ -53,13 +54,13 @@ class BiometricPromptActivity : AppCompatActivity() {
                             .setOnCancelListener { finish() }
                             .show()
                     } catch (_: Exception) {
-                        PendingAuthorizationStore.cancel()
+                        PendingAuthorizationStore.cancel(pending.requestHash)
                         finish()
                     }
                 }
 
                 override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
-                    PendingAuthorizationStore.cancel()
+                    PendingAuthorizationStore.cancel(pending.requestHash)
                     finish()
                 }
             },

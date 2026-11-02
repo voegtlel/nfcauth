@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict
-from typing import Any
+from typing import Annotated, Any
 
 import httpx
 from cryptography.exceptions import InvalidSignature
@@ -13,6 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from nfc_authenticator.protocol_v4 import AuthorizationAssertion, SessionBinding
 
 from .models import TerminalIdentity
+from .limits import ResourceLimitsMiddleware
 from .ports import TerminalAuthenticator
 from .registration import RegistrationCoordinator
 from .renewal import RenewalCoordinator
@@ -20,15 +21,19 @@ from .service import BridgeService
 from .terminal_auth import TerminalAuthenticationError, TerminalAuthenticationUnavailable
 
 
-class TransactionCreate(BaseModel):
+class ApiModel(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_max_length=2048)
+
+
+class TransactionCreate(ApiModel):
     model_config = ConfigDict(extra="forbid")
     audience: str = Field(min_length=1, max_length=255)
-    scopes: tuple[str, ...] = Field(min_length=1, max_length=32)
+    scopes: tuple[Annotated[str, Field(min_length=1, max_length=255)], ...] = Field(min_length=1, max_length=32)
     action: str = Field(min_length=1, max_length=512)
     assurance: str
 
 
-class SessionBindingBody(BaseModel):
+class SessionBindingBody(ApiModel):
     model_config = ConfigDict(extra="forbid")
     session_id: str
     phone_challenge: str
@@ -36,7 +41,7 @@ class SessionBindingBody(BaseModel):
     phone_ephemeral_public_key: str
 
 
-class AssertionBody(BaseModel):
+class AssertionBody(ApiModel):
     model_config = ConfigDict(extra="forbid")
     protocol_version: int
     transaction_id: str
@@ -49,24 +54,24 @@ class AssertionBody(BaseModel):
     signature: str
 
 
-class RegistrationStart(BaseModel):
+class RegistrationStart(ApiModel):
     model_config = ConfigDict(extra="forbid")
     profile: str
     public_key: str
 
 
-class RegistrationComplete(BaseModel):
+class RegistrationComplete(ApiModel):
     model_config = ConfigDict(extra="forbid")
     completion_code: str
     signature: str
 
 
-class RenewalStart(BaseModel):
+class RenewalStart(ApiModel):
     model_config = ConfigDict(extra="forbid")
     credential_id: str = Field(min_length=16, max_length=255)
 
 
-class RenewalComplete(BaseModel):
+class RenewalComplete(ApiModel):
     model_config = ConfigDict(extra="forbid")
     signature: str = Field(min_length=1, max_length=2048)
 
@@ -86,6 +91,7 @@ def create_app(
         redoc_url=None,
     )
 
+    app.add_middleware(ResourceLimitsMiddleware)
     bearer = HTTPBearer(auto_error=False)
 
     async def terminal(

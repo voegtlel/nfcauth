@@ -51,8 +51,8 @@ object PendingAuthorizationStore {
     }
 
     @Synchronized
-    fun cancel() {
-        pending = null
+    fun cancel(requestHash: String? = null) {
+        if (requestHash == null || pending?.requestHash == requestHash) pending = null
     }
 
     private fun clearExpired() {

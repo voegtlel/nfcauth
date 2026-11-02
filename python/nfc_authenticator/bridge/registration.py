@@ -59,13 +59,24 @@ class RegistrationAttempts:
                 raise ValueError("Registration is unavailable or expired")
             return value
 
-    async def by_state(self, state: str) -> RegistrationAttempt:
+    async def claim_callback(self, state: str) -> RegistrationAttempt:
         async with self._lock:
             self._prune()
-            registration_id = self._states.get(state)
-        if registration_id is None:
-            raise ValueError("OIDC state is invalid")
-        return await self.by_id(registration_id)
+            registration_id = self._states.pop(state, None)
+            if registration_id is None:
+                raise ValueError("OIDC state is invalid or already used")
+            return self._values[registration_id]
+
+    async def finish_callback(self, attempt: RegistrationAttempt, subject: Subject) -> RegistrationAttempt:
+        async with self._lock:
+            self._prune()
+            if self._values.get(attempt.registration_id) is not attempt:
+                raise ValueError("Registration expired during account linking")
+            attempt.subject = subject
+            attempt.credential_id = secrets.token_urlsafe(24)
+            attempt.completion_code = secrets.token_urlsafe(32)
+            attempt.expires_at = int(self.clock()) + 60
+            return attempt
 
     async def consume(self, registration_id: str) -> RegistrationAttempt:
         async with self._lock:
@@ -101,7 +112,7 @@ class GenericOidcIdentityProvider:
         for endpoint in (issuer, authorization_endpoint, token_endpoint, jwks_uri, redirect_uri):
             if not endpoint.startswith("https://"):
                 raise ValueError("OIDC endpoints and issuer must use HTTPS")
-        self.issuer = issuer.rstrip("/")
+        self.issuer = issuer
         self.authorization_endpoint = authorization_endpoint
         self.token_endpoint = token_endpoint
         self.jwks_uri = jwks_uri
@@ -211,12 +222,9 @@ class RegistrationCoordinator:
         return attempt, self.oidc.authorization_url(attempt.state, attempt.nonce, challenge)
 
     async def callback(self, state: str, code: str) -> RegistrationAttempt:
-        attempt = await self.attempts.by_state(state)
-        attempt.subject = await self.oidc.complete(code, attempt.nonce, attempt.pkce_verifier)
-        attempt.credential_id = secrets.token_urlsafe(24)
-        attempt.completion_code = secrets.token_urlsafe(32)
-        attempt.expires_at = int(self.clock()) + 60
-        return attempt
+        attempt = await self.attempts.claim_callback(state)
+        subject = await self.oidc.complete(code, attempt.nonce, attempt.pkce_verifier)
+        return await self.attempts.finish_callback(attempt, subject)
 
     async def complete(self, registration_id: str, completion_code: str, signature: str) -> Credential:
         attempt = await self.attempts.by_id(registration_id)

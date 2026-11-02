@@ -123,6 +123,15 @@ the background cleanup loop also prunes them during idle periods. Capacity
 checks and one-use consumption are protected by the store lock. These limits
 bound memory use; proxy request-rate and request-body limits are still required.
 
+The bridge also enforces a process-wide rolling limit of 600 HTTP requests per
+60 seconds (429 with Retry-After), 64 KiB request bodies (413), 8 KiB query
+strings (414), and a ten-second body-read deadline (408). Streaming requests
+are bounded even without Content-Length. The included Caddy proxy additionally
+caps bodies at 64 KiB. These conservative defaults apply to all routes, including
+health checks; add edge per-client quotas and connection limits appropriate to
+your traffic. The global limit does not prevent an attacker from exhausting
+availability, and it must not be replaced with trusting spoofable client headers.
+
 The included bridge and Caddy configurations leave access logging disabled.
 Keep OIDC callback query strings (`code` and `state`), redirect `Location` headers,
 Authorization headers and request/response bodies out of logs. Apply the same

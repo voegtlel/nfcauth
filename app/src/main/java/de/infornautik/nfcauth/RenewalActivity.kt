@@ -48,7 +48,7 @@ class RenewalActivity : AppCompatActivity() {
                 connection.requestMethod = "GET"
                 require(connection.responseCode == 200)
                 val certificate = connection.serverCertificates.first() as X509Certificate
-                val envelope = JSONObject(connection.inputStream.bufferedReader().use { it.readText() })
+                val envelope = JSONObject(BoundedHttp.readJson(connection.inputStream))
                 require(envelope.toString().toByteArray().size <= 64 * 1024)
                 val signed = ProviderManifestVerifier.verify(envelope, current.serviceOrigin, certificate)
                 val document = signed.manifest
@@ -231,7 +231,7 @@ class RenewalActivity : AppCompatActivity() {
         connection.doOutput = true
         connection.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
         require(connection.responseCode in 200..299)
-        return JSONObject(connection.inputStream.bufferedReader().use { it.readText() })
+        return JSONObject(BoundedHttp.readJson(connection.inputStream))
     }
 
     private fun fail(message: String) {

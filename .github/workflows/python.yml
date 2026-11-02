@@ -58,6 +58,14 @@ jobs:
           -f deploy/docker-compose.yml \
           -f deploy/docker-compose.authentik.yml config -q
 
+    - name: Validate proxy request-body limit configuration
+      working-directory: ${{ github.workspace }}
+      run: >-
+        docker run --rm --network none
+        -e NFCAUTH_PUBLIC_HOSTNAME=example.test
+        -v "$PWD/deploy/Caddyfile:/etc/caddy/Caddyfile:ro"
+        caddy:2.10-alpine caddy adapt --config /etc/caddy/Caddyfile > /dev/null
+
     - name: Upload Python package
       uses: actions/upload-artifact@v7
       with:

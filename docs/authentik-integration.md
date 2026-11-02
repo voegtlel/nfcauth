@@ -70,3 +70,13 @@ the bridge issue its own ten-minute ES256 JWTs instead; protected APIs must then
 trust the bridge's `/v1/jwks.json`. Before enabling Authentik exchange, verify
 with a test account that the federated subject resolves to the intended human
 account rather than a generated service account.
+
+Account-linking issuer strings are matched exactly, including trailing slashes.
+OIDC callback state is claimed once before exchange: after a callback failure,
+restart registration rather than replaying the callback URL. The exchange
+adapter rejects non-Bearer responses, empty/oversized access tokens, non-positive
+or excessive lifetimes, and response scopes outside the approved set. Omitted
+scope means the requested scope, per OAuth response semantics. This validates
+response metadata, not an opaque token's actual claims: the configured issuer
+must enforce the requested audience/scopes, and the protected API must validate
+them. Do not decode an unsigned/unverified JWT to establish those properties.
