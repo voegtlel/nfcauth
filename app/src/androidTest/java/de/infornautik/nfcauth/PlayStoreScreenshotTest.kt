@@ -20,11 +20,13 @@ import androidx.test.espresso.action.ViewActions.swipeUp
 import androidx.test.espresso.assertion.ViewAssertions.matches
 import androidx.test.espresso.matcher.ViewMatchers.isEnabled
 import androidx.test.espresso.matcher.ViewMatchers.isAssignableFrom
+import androidx.test.espresso.matcher.ViewMatchers.hasDescendant
 import androidx.test.espresso.matcher.ViewMatchers.withId
 import androidx.test.espresso.matcher.ViewMatchers.withText
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.assertTrue
+import org.hamcrest.Matchers.allOf
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Before
@@ -80,7 +82,7 @@ class PlayStoreScreenshotTest {
                     position[1] >= barPosition[1] + (bar?.height ?: 0))
             }
             capture("02-registration-disclosure")
-            onView(withId(R.id.registrationCancel)).perform(scrollTo())
+            scrollRegistrationToBottom(scenario)
             scenario.onActivity { activity ->
                 val cancel = activity.findViewById<android.view.View>(R.id.registrationCancel)
                 val location = IntArray(2)
@@ -91,7 +93,8 @@ class PlayStoreScreenshotTest {
                     location[1] + cancel.height <= activity.window.decorView.height - bottom)
             }
             capture("03-registration-confirmation")
-            onView(withId(R.id.registrationAccessToggle)).perform(scrollTo(), click())
+            onView(withId(R.id.registrationAccessToggle)).perform(click())
+            scrollRegistrationToBottom(scenario)
             capture("registration-permissions", "review")
         }
 
@@ -100,7 +103,8 @@ class PlayStoreScreenshotTest {
             capture("04-registered-service")
             onView(withText(EXAMPLE_SERVICE_NAME)).perform(click())
             capture("05-service-details")
-            onView(isAssignableFrom(ScrollView::class.java)).perform(swipeUp())
+            onView(allOf(isAssignableFrom(ScrollView::class.java), hasDescendant(withId(android.R.id.message))))
+                .perform(swipeUp())
             capture("service-details-lower", "review")
             onView(withId(android.R.id.button2)).perform(click())
             capture("06-delete-local-confirmation")
@@ -136,6 +140,17 @@ class PlayStoreScreenshotTest {
             onView(isAssignableFrom(ScrollView::class.java)).perform(swipeUp(), swipeUp())
             capture("app-policy-lower", "review")
         }
+    }
+
+    private fun scrollRegistrationToBottom(scenario: ActivityScenario<RegistrationActivity>) {
+        instrumentation.waitForIdleSync()
+        scenario.onActivity { activity ->
+            activity.findViewById<ScrollView>(R.id.registrationRoot).apply {
+                isSmoothScrollingEnabled = false
+                fullScroll(android.view.View.FOCUS_DOWN)
+            }
+        }
+        instrumentation.waitForIdleSync()
     }
 
     private fun waitForRegistrationPolicyCheck() {

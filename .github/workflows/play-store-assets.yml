@@ -69,9 +69,19 @@ jobs:
             adb shell am broadcast -a com.android.systemui.demo -e command battery -e level 100 -e plugged false || true
             adb shell am broadcast -a com.android.systemui.demo -e command notifications -e visible false || true
             adb shell rm -rf /sdcard/Pictures/play-store
-            gradle connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=de.infornautik.nfcauth.PlayStoreScreenshotTest,de.infornautik.nfcauth.RegistrationLinkIntentTest,de.infornautik.nfcauth.PrivacyMenuTest,de.infornautik.nfcauth.PendingAuthorizationTest
+            gradle connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=de.infornautik.nfcauth.PlayStoreScreenshotTest,de.infornautik.nfcauth.RegistrationLinkIntentTest,de.infornautik.nfcauth.PrivacyMenuTest,de.infornautik.nfcauth.PendingAuthorizationTest || { mkdir -p "store-assets/screenshots/$SCREENSHOT_PROFILE"; adb pull /sdcard/Pictures/play-store/. "store-assets/screenshots/$SCREENSHOT_PROFILE/"; exit 1; }
             mkdir -p "store-assets/screenshots/$SCREENSHOT_PROFILE"
             adb pull /sdcard/Pictures/play-store/. "store-assets/screenshots/$SCREENSHOT_PROFILE/"
+
+      - name: Upload UI diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ui-diagnostics-${{ matrix.profile }}
+          path: |
+            app/build/reports/androidTests/
+            app/build/outputs/androidTest-results/
+            store-assets/screenshots/${{ matrix.profile }}/
 
       - name: Verify screenshot dimensions
         shell: python
