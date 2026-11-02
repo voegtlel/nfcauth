@@ -116,7 +116,7 @@ class MainActivity : AppCompatActivity() {
         }
         AlertDialog.Builder(this)
             .setTitle("Register with provider")
-            .setMessage("Enter the website address given by your provider, starting with https://. You can check its details before agreeing to register.")
+            .setMessage("Enter the website address given by your provider. You can check its details before agreeing to register.")
             .setView(input)
             .setNegativeButton(R.string.dialog_button_cancel, null)
             .setPositiveButton("Continue") { _, _ ->

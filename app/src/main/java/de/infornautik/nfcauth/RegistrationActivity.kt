@@ -200,12 +200,6 @@ class RegistrationActivity : AppCompatActivity() {
             getString(R.string.registration_deletion, manifest.deletionUrlOrContact)
         findViewById<TextView>(R.id.registrationLifetime).text =
             getString(R.string.registration_lifetime, manifest.registrationLifetimeDays, manifest.privacyNoticeVersion)
-        val access = findViewById<TextView>(R.id.registrationAccess)
-        access.text = getString(R.string.registration_access_details,
-            manifest.allowedAudiences.joinToString(), manifest.allowedScopes.joinToString())
-        findViewById<Button>(R.id.registrationAccessToggle).setOnClickListener {
-            access.visibility = if (access.visibility == View.GONE) View.VISIBLE else View.GONE
-        }
         findViewById<Button>(R.id.registrationCancel).setOnClickListener { cancelRegistration() }
         findViewById<Button>(R.id.registrationAgree).setOnClickListener {
             it.isEnabled = false

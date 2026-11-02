@@ -7,8 +7,8 @@ preview directory. Only the seven top-level phone/tablet PNGs are store-upload
 deliverables; the additional captures are for review.
 
 Views covered: empty and registered home screens; provider address dialog; overflow
-and About menus; QR/deep-link confirmation; registration disclosure, lower actions
-and expanded permissions; service details and lower links; local deletion dialog;
+and About menus; QR/deep-link confirmation; registration disclosure and lower
+actions; service details and lower links; local deletion dialog;
 expired registration and its details; unregistered-provider notice; app policy
 and lower text; renewal confirmation and biometric-approved notice; QR landing
 page on phone/tablet browsers and invalid-link feedback.

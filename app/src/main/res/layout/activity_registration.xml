@@ -101,19 +101,6 @@
                     android:textSize="14sp"
                     android:layout_marginBottom="8dp" />
                 <Button
-                    android:id="@+id/registrationAccessToggle"
-                    style="@style/Widget.MaterialComponents.Button.TextButton"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:minHeight="48dp"
-                    android:text="@string/registration_access_show" />
-                <TextView
-                    android:id="@+id/registrationAccess"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:textSize="14sp"
-                    android:visibility="gone" />
-                <Button
                     android:id="@+id/registrationAgree"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"

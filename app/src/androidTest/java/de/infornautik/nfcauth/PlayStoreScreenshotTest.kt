@@ -93,9 +93,6 @@ class PlayStoreScreenshotTest {
                     location[1] + cancel.height <= activity.window.decorView.height - bottom)
             }
             capture("03-registration-confirmation")
-            onView(withId(R.id.registrationAccessToggle)).perform(click())
-            scrollRegistrationToBottom(scenario)
-            capture("registration-permissions", "review")
         }
 
         seedExampleService()
@@ -125,7 +122,8 @@ class PlayStoreScreenshotTest {
             onView(withText(EXAMPLE_SERVICE_NAME)).perform(click())
             capture("expired-registration-details", "review")
         }
-        ActivityScenario.launch<UnregisteredServiceDialog>(Intent(context, UnregisteredServiceDialog::class.java)).use {
+        ActivityScenario.launch<UnregisteredServiceDialog>(Intent(context, UnregisteredServiceDialog::class.java)
+            .putExtra(UnregisteredServiceDialog.EXTRA_ORIGIN, "https://auth.example.test")).use {
             capture("provider-not-registered", "review")
         }
         ActivityScenario.launch<BiometricPromptActivity>(Intent(context, BiometricPromptActivity::class.java)

@@ -57,11 +57,18 @@ The disclosure is a full, scrollable screen with 24 dp outer margins and a
 600 dp content-width cap on tablets. It explains that the terminal chooses the
 sign-in method; there is no user assurance selector. Registration enrolls all
 provider-supported methods in one login, each with its own key and credential ID;
-the provider's exact purpose text is retained, with raw access identifiers
-available under **View sign-in permissions**. Privacy/deletion information and
+the provider's exact purpose text is retained. Technical audience/scope limits
+remain enforced internally, not listed as services or terminal permissions during
+provider registration. Privacy/deletion information and
 the approval action remain available without leaving the registration flow.
 Neither the QR address nor a custom scheme establishes provider authenticity.
 An active registration cannot be overwritten by scanning another link.
+When an NFC terminal presents an unknown provider, the notice offers **Register
+with provider** using the same confirmation flow. The NFC-supplied HTTPS origin
+is only an unverified hint: no discovery starts until the user continues, and
+normal provider verification, browser login and explicit registration consent
+still apply. Registration requires internet access; the original NFC login is
+not resumed automatically. Tap again after registration.
 
 The OAuth return remains a separate `nfcauth://registration-complete` route.
 Do not encode that callback URL or its one-use code in a printed QR.
