@@ -24,6 +24,10 @@ class RegistrationLinkIntentTest {
         val intent = Intent(ApplicationProvider.getApplicationContext<Context>(), UnregisteredServiceDialog::class.java)
             .putExtra(UnregisteredServiceDialog.EXTRA_ORIGIN, "https://auth.example.test")
         ActivityScenario.launch<UnregisteredServiceDialog>(intent).use {
+            onView(withText(R.string.unregistered_provider_title)).check(matches(isDisplayed()))
+            onView(withId(R.id.providerAddress)).check(matches(withText("https://auth.example.test")))
+            onView(withText(R.string.unregistered_provider_address_label)).check(matches(isDisplayed()))
+            onView(withId(R.id.closeButton)).check(matches(isDisplayed()))
             onView(withId(R.id.registerProviderButton)).check(matches(isEnabled())).perform(click())
             onView(withText(R.string.registration_link_continue)).check(matches(isDisplayed()))
             assertNull(PendingRegistrationSession.verified)
