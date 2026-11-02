@@ -1,6 +1,7 @@
 package de.infornautik.nfcauth
 
 import android.app.AlertDialog
+import android.content.pm.ApplicationInfo
 import android.os.Bundle
 import android.util.Base64
 import android.widget.Toast
@@ -33,6 +34,13 @@ class RenewalActivity : AppCompatActivity() {
         val profile = intent.getStringExtra(EXTRA_PROFILE) ?: return fail("Credential profile is missing")
         registration = database.getRegistration(origin, serviceId, profile)
             ?: return fail("Registration is no longer available")
+        if ((applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0 &&
+            intent.hasExtra(EXTRA_PREVIEW_EXPIRY)
+        ) {
+            showRenewalConfirmation(JSONObject().put("proposed_registration_expires_at",
+                intent.getLongExtra(EXTRA_PREVIEW_EXPIRY, 0)), registration!!)
+            return
+        }
         fetchCurrentProviderMetadata()
     }
 
@@ -246,6 +254,7 @@ class RenewalActivity : AppCompatActivity() {
     }
 
     companion object {
+        const val EXTRA_PREVIEW_EXPIRY = "preview_renewal_expiry"
         const val EXTRA_ORIGIN = "provider_origin"
         const val EXTRA_SERVICE_ID = "service_id"
         const val EXTRA_PROFILE = "authentication_profile"

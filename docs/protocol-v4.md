@@ -10,8 +10,13 @@
 4. The phone checks that the HTTPS privacy policy is reachable and displays the
    exact operator, fields, purposes, audiences, scopes, profiles and deletion
    instructions.
-5. After explicit consent, the phone creates a P-256 key in Android Keystore
-   scoped to the provider's canonical HTTPS origin, service ID and profile.
+5. After explicit consent, the phone creates a separate P-256 key in Android
+   Keystore for every provider-supported profile. Users do not select an
+   assurance level: terminals request it during authentication, subject to
+   bridge policy. Registration enrolls all supported methods in one account
+   linking flow, with proof of every key and an atomic enrollment batch.
+   A biometric-capable provider requires strong biometrics to be set up on the
+   phone; missing biometric support is an error, never a silent downgrade.
 6. The bridge performs Authorization Code plus PKCE against its configured OIDC
    provider and identifies the account by immutable `(issuer, sub)`.
 7. The bridge assigns the credential ID. Completion requires a one-use code and

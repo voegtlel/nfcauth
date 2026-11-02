@@ -3,18 +3,23 @@ package de.infornautik.nfcauth
 import android.content.Context
 import android.content.ContentValues
 import android.content.Intent
+import android.net.Uri
 import android.graphics.Bitmap
 import android.os.Environment
 import android.os.SystemClock
 import android.provider.MediaStore
+import android.widget.ScrollView
 import androidx.test.core.app.ActivityScenario
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.test.espresso.Espresso.onView
+import androidx.test.espresso.Espresso.openActionBarOverflowOrOptionsMenu
 import androidx.test.espresso.action.ViewActions.click
 import androidx.test.espresso.action.ViewActions.scrollTo
+import androidx.test.espresso.action.ViewActions.swipeUp
 import androidx.test.espresso.assertion.ViewAssertions.matches
 import androidx.test.espresso.matcher.ViewMatchers.isEnabled
+import androidx.test.espresso.matcher.ViewMatchers.isAssignableFrom
 import androidx.test.espresso.matcher.ViewMatchers.withId
 import androidx.test.espresso.matcher.ViewMatchers.withText
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -41,6 +46,20 @@ class PlayStoreScreenshotTest {
         ActivityScenario.launch<MainActivity>(Intent(context, MainActivity::class.java)).use { scenario ->
             waitForMainContentBelowActionBar(scenario)
             capture("01-home-empty")
+            onView(withId(R.id.registerProviderButton)).perform(click())
+            capture("provider-address", "review")
+            onView(withText(R.string.dialog_button_cancel)).perform(click())
+            openActionBarOverflowOrOptionsMenu(context)
+            capture("overflow-menu", "review")
+            onView(withText(R.string.menu_about)).perform(click())
+            capture("about-menu", "review")
+        }
+
+        val linkIntent = Intent(context, RegistrationActivity::class.java)
+            .setData(Uri.parse("nfcauth://register?provider=https%3A%2F%2Fauth.example.test"))
+        ActivityScenario.launch<RegistrationActivity>(linkIntent).use {
+            capture("registration-link-confirmation", "review")
+            onView(withText(R.string.dialog_button_cancel)).perform(click())
         }
 
         val registrationIntent = Intent(context, RegistrationActivity::class.java).apply {
@@ -61,8 +80,19 @@ class PlayStoreScreenshotTest {
                     position[1] >= barPosition[1] + (bar?.height ?: 0))
             }
             capture("02-registration-disclosure")
-            onView(withId(R.id.registrationAgree)).perform(scrollTo())
+            onView(withId(R.id.registrationCancel)).perform(scrollTo())
+            scenario.onActivity { activity ->
+                val cancel = activity.findViewById<android.view.View>(R.id.registrationCancel)
+                val location = IntArray(2)
+                cancel.getLocationOnScreen(location)
+                val bottom = ViewCompat.getRootWindowInsets(cancel)
+                    ?.getInsetsIgnoringVisibility(WindowInsetsCompat.Type.navigationBars())?.bottom ?: 0
+                assertTrue("Registration actions must be above navigation gestures",
+                    location[1] + cancel.height <= activity.window.decorView.height - bottom)
+            }
             capture("03-registration-confirmation")
+            onView(withId(R.id.registrationAccessToggle)).perform(scrollTo(), click())
+            capture("registration-permissions", "review")
         }
 
         seedExampleService()
@@ -70,14 +100,41 @@ class PlayStoreScreenshotTest {
             capture("04-registered-service")
             onView(withText(EXAMPLE_SERVICE_NAME)).perform(click())
             capture("05-service-details")
+            onView(isAssignableFrom(ScrollView::class.java)).perform(swipeUp())
+            capture("service-details-lower", "review")
             onView(withId(android.R.id.button2)).perform(click())
             capture("06-delete-local-confirmation")
+        }
+
+        val renewalIntent = Intent(context, RenewalActivity::class.java)
+            .putExtra(RenewalActivity.EXTRA_ORIGIN, "https://voegtlel.github.io")
+            .putExtra(RenewalActivity.EXTRA_SERVICE_ID, "example.service")
+            .putExtra(RenewalActivity.EXTRA_PROFILE, ServiceManifestParser.PROFILE_BIOMETRIC)
+            .putExtra(RenewalActivity.EXTRA_PREVIEW_EXPIRY, EXAMPLE_REGISTRATION_EXPIRY / 1000L)
+        ActivityScenario.launch<RenewalActivity>(renewalIntent).use {
+            capture("renewal-confirmation-preview", "review")
+            onView(withText(R.string.dialog_button_cancel)).perform(click())
+        }
+        seedExampleService(expired = true)
+        ActivityScenario.launch<MainActivity>(Intent(context, MainActivity::class.java)).use {
+            capture("expired-registration", "review")
+            onView(withText(EXAMPLE_SERVICE_NAME)).perform(click())
+            capture("expired-registration-details", "review")
+        }
+        ActivityScenario.launch<UnregisteredServiceDialog>(Intent(context, UnregisteredServiceDialog::class.java)).use {
+            capture("provider-not-registered", "review")
+        }
+        ActivityScenario.launch<BiometricPromptActivity>(Intent(context, BiometricPromptActivity::class.java)
+            .putExtra(BiometricPromptActivity.EXTRA_PREVIEW_APPROVAL, true)).use {
+            capture("biometric-approval-preview", "review")
         }
 
         ActivityScenario.launch<AppPrivacyPolicyActivity>(
             Intent(context, AppPrivacyPolicyActivity::class.java),
         ).use {
             capture("07-app-privacy-policy")
+            onView(isAssignableFrom(ScrollView::class.java)).perform(swipeUp(), swipeUp())
+            capture("app-policy-lower", "review")
         }
     }
 
@@ -144,7 +201,7 @@ class PlayStoreScreenshotTest {
         )
     }
 
-    private fun capture(name: String) {
+    private fun capture(name: String, directory: String = "") {
         instrumentation.waitForIdleSync()
         SystemClock.sleep(350)
         val screenshot = checkNotNull(instrumentation.uiAutomation.takeScreenshot())
@@ -153,7 +210,7 @@ class PlayStoreScreenshotTest {
             put(MediaStore.Images.Media.MIME_TYPE, "image/png")
             put(
                 MediaStore.Images.Media.RELATIVE_PATH,
-                "${Environment.DIRECTORY_PICTURES}/play-store",
+                "${Environment.DIRECTORY_PICTURES}/play-store/$directory",
             )
             put(MediaStore.Images.Media.IS_PENDING, 1)
         }
@@ -173,7 +230,7 @@ class PlayStoreScreenshotTest {
         screenshot.recycle()
     }
 
-    private fun seedExampleService() {
+    private fun seedExampleService(expired: Boolean = false) {
         AuthDatabase(context).use { database ->
             check(
                 database.saveRegistration(
@@ -193,7 +250,7 @@ class PlayStoreScreenshotTest {
                         verifiedDomain = "voegtlel.github.io",
                         manifestHash = ServiceManifestParser.hash(JSONObject(exampleManifest())),
                         approvedAt = EXAMPLE_APPROVAL_TIME,
-                        registrationExpiresAt = EXAMPLE_REGISTRATION_EXPIRY,
+                        registrationExpiresAt = if (expired) EXAMPLE_APPROVAL_TIME else EXAMPLE_REGISTRATION_EXPIRY,
                         allowedAudiences = listOf("https://api.example.com"),
                         allowedScopes = listOf("openid", "profile"),
                     ),
@@ -261,9 +318,9 @@ class PlayStoreScreenshotTest {
         )
         private val PURPOSES = linkedMapOf(
             ServiceManifestParser.FIELD_PROVIDER_ASSIGNED_CREDENTIAL_ID to
-                "Associate this phone credential with your provider account.",
+                "Link this phone to your account.",
             ServiceManifestParser.FIELD_AUTHENTICATION_PUBLIC_KEY to
-                "Verify future NFC authentication signatures.",
+                "Confirm it is you when you sign in.",
         )
     }
 

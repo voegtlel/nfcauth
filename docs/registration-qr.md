@@ -54,7 +54,9 @@ non-HTTPS providers, fragments, unexpected routes and duplicate/extra parameters
 It prompts before discovery, verifies the signed manifest against HTTPS, and
 requires the existing per-transfer disclosure and **Agree and register** action.
 The disclosure is a full, scrollable screen with 24 dp outer margins and a
-600 dp content-width cap on tablets. It uses plain-language sign-in choices;
+600 dp content-width cap on tablets. It explains that the terminal chooses the
+sign-in method; there is no user assurance selector. Registration enrolls all
+provider-supported methods in one login, each with its own key and credential ID;
 the provider's exact purpose text is retained, with raw access identifiers
 available under **View sign-in permissions**. Privacy/deletion information and
 the approval action remain available without leaving the registration flow.

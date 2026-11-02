@@ -337,21 +337,22 @@ async def test_provider_assigns_credential_id_and_completion_requires_phone_key(
         enrollments,
         FakeOidc(),
         credential_lifetime_seconds=548 * 86_400,
+        supported_profiles=("possession",),
         clock=lambda: now,
     )
-    attempt, url = await coordinator.start("possession", public_key_der_b64(key.public_key()))
+    attempt, url = await coordinator.start({"possession": public_key_der_b64(key.public_key())})
     assert "code_challenge=" in url
     completed = await coordinator.callback(attempt.state, "valid-code")
-    assert completed.credential_id
+    assert completed.credential_ids["possession"]
     assert completed.completion_code
     payload = REGISTRATION_DOMAIN + completed.registration_id.encode() + b"\x00" + completed.completion_code.encode()
     signature = base64.b64encode(key.sign(payload, ec.ECDSA(hashes.SHA256()))).decode()
     wrong_key = ec.generate_private_key(ec.SECP256R1())
     wrong_signature = base64.b64encode(wrong_key.sign(payload, ec.ECDSA(hashes.SHA256()))).decode()
     with pytest.raises(InvalidSignature):
-        await coordinator.complete(completed.registration_id, completed.completion_code, wrong_signature)
-    credential = await coordinator.complete(completed.registration_id, completed.completion_code, signature)
-    assert credential.credential_id == completed.credential_id
+        await coordinator.complete(completed.registration_id, completed.completion_code, {"possession": wrong_signature})
+    credential, = await coordinator.complete(completed.registration_id, completed.completion_code, {"possession": signature})
+    assert credential.credential_id == completed.credential_ids["possession"]
     assert credential.subject == "provider-account-42"
     assert credential.registered_at == now
     assert credential.expires_at == now + 548 * 86_400
@@ -395,6 +396,49 @@ async def test_manual_renewal_uses_existing_key_and_is_one_use() -> None:
     assert renewed.last_authenticated_at is None
     with pytest.raises(ValueError):
         await renewals.complete(attempt.renewal_id, signature)
+
+
+@pytest.mark.asyncio
+async def test_all_profiles_enroll_together_and_cannot_downgrade_terminal(tmp_path) -> None:
+    keys = {profile: ec.generate_private_key(ec.SECP256R1()) for profile in ("possession", "biometric")}
+    public_keys = {profile: public_key_der_b64(key.public_key()) for profile, key in keys.items()}
+    store = MemoryEnrollmentStore()
+    coordinator = RegistrationCoordinator("example", RegistrationAttempts(), store, FakeOidc(),
+                                          credential_lifetime_seconds=548 * 86400)
+    with pytest.raises(ValueError, match="all provider"):
+        await coordinator.start({"possession": public_keys["possession"]})
+    with pytest.raises(ValueError, match="own signing key"):
+        await coordinator.start(dict.fromkeys(keys, public_keys["possession"]))
+    attempt, _ = await coordinator.start(public_keys)
+    attempt = await coordinator.callback(attempt.state, "valid-code")
+    payload = REGISTRATION_DOMAIN + attempt.registration_id.encode() + b"\x00" + attempt.completion_code.encode()
+    proofs = {profile: base64.b64encode(key.sign(payload, ec.ECDSA(hashes.SHA256()))).decode()
+              for profile, key in keys.items()}
+    with pytest.raises(ValueError):
+        await coordinator.complete(attempt.registration_id, attempt.completion_code, {"possession": proofs["possession"]})
+    with pytest.raises(InvalidSignature):
+        await coordinator.complete(attempt.registration_id, attempt.completion_code,
+                                   {**proofs, "biometric": proofs["possession"]})
+    for identifier in attempt.credential_ids.values():
+        assert await store.get_credential(identifier) is None
+    credentials = await coordinator.complete(attempt.registration_id, attempt.completion_code, proofs)
+    assert len(credentials) == 2 and len({value.credential_id for value in credentials}) == 2
+    assert len({value.public_key for value in credentials}) == 2
+    assert {value.subject for value in credentials} == {"provider-account-42"}
+    possession = next(value for value in credentials if value.profile == "possession")
+    terminal = TerminalIdentity("terminal-1", frozenset({"api"}), frozenset({"read"}))
+    token_pem = keys["possession"].private_bytes(
+        serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption())
+    service = BridgeService("example", "https://auth.example.test", "a" * 64,
+                            MemoryTransactionStore(), store, certificate_signer(tmp_path),
+                            LocalJwtTokenIssuer("https://auth.example.test", token_pem))
+    transaction = await service.create_transaction(terminal, "api", ("read",), "Read", "biometric")
+    signed = await service.bind_session(transaction.transaction_id, terminal, session())
+    assertion = AuthorizationAssertion(transaction.transaction_id, "unused", "example", terminal.terminal_id,
+                                       possession.credential_id, "biometric", int(time.time())).with_signature(keys["possession"])
+    assert signed["request"]["assurance"] == "biometric"
+    with pytest.raises(PermissionError, match="profile"):
+        await service.complete(transaction.transaction_id, terminal, assertion)
 
 
 @pytest.mark.asyncio

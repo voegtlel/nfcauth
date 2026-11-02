@@ -5,7 +5,7 @@ import base64
 import hashlib
 import secrets
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from urllib.parse import urlencode
 
 import httpx
@@ -25,11 +25,10 @@ class RegistrationAttempt:
     state: str
     nonce: str
     pkce_verifier: str
-    profile: str
-    public_key: str
+    public_keys: dict[str, str]
     expires_at: int
     subject: Subject | None = None
-    credential_id: str | None = None
+    credential_ids: dict[str, str] = field(default_factory=dict)
     completion_code: str | None = None
 
 
@@ -73,7 +72,7 @@ class RegistrationAttempts:
             if self._values.get(attempt.registration_id) is not attempt:
                 raise ValueError("Registration expired during account linking")
             attempt.subject = subject
-            attempt.credential_id = secrets.token_urlsafe(24)
+            attempt.credential_ids = {profile: secrets.token_urlsafe(24) for profile in attempt.public_keys}
             attempt.completion_code = secrets.token_urlsafe(32)
             attempt.expires_at = int(self.clock()) + 60
             return attempt
@@ -192,6 +191,7 @@ class RegistrationCoordinator:
         oidc,
         *,
         credential_lifetime_seconds: int,
+        supported_profiles: tuple[str, ...] = ("possession", "biometric"),
         clock=time.time,
     ) -> None:
         self.service_id = service_id
@@ -199,22 +199,30 @@ class RegistrationCoordinator:
         self.enrollments = enrollments
         self.oidc = oidc
         self.credential_lifetime_seconds = credential_lifetime_seconds
+        self.supported_profiles = frozenset(supported_profiles)
+        if not self.supported_profiles or not self.supported_profiles <= {"possession", "biometric"}:
+            raise ValueError("Invalid registration profiles")
         self.clock = clock
 
-    async def start(self, profile: str, public_key: str) -> tuple[RegistrationAttempt, str]:
-        if profile not in {"possession", "biometric"}:
-            raise ValueError("Unsupported credential profile")
-        key = serialization.load_der_public_key(base64.b64decode(public_key, validate=True))
-        if not isinstance(key, ec.EllipticCurvePublicKey) or not isinstance(key.curve, ec.SECP256R1):
-            raise TypeError("Registration key must be P-256")
+    async def start(self, public_keys: dict[str, str]) -> tuple[RegistrationAttempt, str]:
+        if set(public_keys) != self.supported_profiles:
+            raise ValueError("Registration must include all provider-supported profiles")
+        encoded_keys = []
+        for public_key in public_keys.values():
+            encoded = base64.b64decode(public_key, validate=True)
+            key = serialization.load_der_public_key(encoded)
+            if not isinstance(key, ec.EllipticCurvePublicKey) or not isinstance(key.curve, ec.SECP256R1):
+                raise TypeError("Registration key must be P-256")
+            encoded_keys.append(key.public_bytes(serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo))
+        if len(set(encoded_keys)) != len(encoded_keys):
+            raise ValueError("Each profile must have its own signing key")
         verifier = secrets.token_urlsafe(48)
         attempt = RegistrationAttempt(
             secrets.token_urlsafe(24),
             secrets.token_urlsafe(32),
             secrets.token_urlsafe(32),
             verifier,
-            profile,
-            public_key,
+            dict(public_keys),
             int(self.clock()) + 300,
         )
         await self.attempts.create(attempt)
@@ -226,26 +234,29 @@ class RegistrationCoordinator:
         subject = await self.oidc.complete(code, attempt.nonce, attempt.pkce_verifier)
         return await self.attempts.finish_callback(attempt, subject)
 
-    async def complete(self, registration_id: str, completion_code: str, signature: str) -> Credential:
+    async def complete(self, registration_id: str, completion_code: str, signatures: dict[str, str]) -> tuple[Credential, ...]:
         attempt = await self.attempts.by_id(registration_id)
         if not secrets.compare_digest(attempt.completion_code or "", completion_code):
             raise ValueError("Registration completion code is invalid")
-        public_key = serialization.load_der_public_key(base64.b64decode(attempt.public_key, validate=True))
+        if set(signatures) != set(attempt.public_keys) or attempt.subject is None:
+            raise ValueError("Proofs are required for all registered keys")
         payload = REGISTRATION_DOMAIN + registration_id.encode() + b"\x00" + completion_code.encode()
-        public_key.verify(base64.b64decode(signature, validate=True), payload, ec.ECDSA(hashes.SHA256()))
+        for profile, encoded in attempt.public_keys.items():
+            public_key = serialization.load_der_public_key(base64.b64decode(encoded, validate=True))
+            public_key.verify(base64.b64decode(signatures[profile], validate=True), payload, ec.ECDSA(hashes.SHA256()))
         attempt = await self.attempts.consume(registration_id)
-        if attempt.subject is None or attempt.credential_id is None:
+        if attempt.subject is None or not attempt.credential_ids:
             raise ValueError("Registration identity has not been established")
         now = int(self.clock())
-        credential = Credential(
-            attempt.credential_id,
+        credentials = tuple(Credential(
+            attempt.credential_ids[profile],
             attempt.subject.issuer,
             attempt.subject.subject,
             self.service_id,
-            attempt.profile,
-            attempt.public_key,
+            profile,
+            public_key,
             now,
             now + self.credential_lifetime_seconds,
-        )
-        await self.enrollments.save_credential(credential)
-        return credential
+        ) for profile, public_key in attempt.public_keys.items())
+        await self.enrollments.save_credentials(credentials)
+        return credentials

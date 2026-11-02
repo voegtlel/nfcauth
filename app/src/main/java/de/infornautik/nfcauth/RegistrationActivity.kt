@@ -8,8 +8,6 @@ import android.os.Bundle
 import android.util.Base64
 import android.view.View
 import android.widget.Button
-import android.widget.RadioButton
-import android.widget.RadioGroup
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
@@ -34,9 +32,6 @@ class RegistrationActivity : AppCompatActivity() {
     private var verified: VerifiedServiceManifest?
         get() = PendingRegistrationSession.verified
         set(value) { PendingRegistrationSession.verified = value }
-    private var selectedProfile: String?
-        get() = PendingRegistrationSession.selectedProfile
-        set(value) { PendingRegistrationSession.selectedProfile = value }
     private var registrationId: String?
         get() = PendingRegistrationSession.registrationId
         set(value) { PendingRegistrationSession.registrationId = value }
@@ -194,21 +189,10 @@ class RegistrationActivity : AppCompatActivity() {
             getString(R.string.registration_identity, manifest.operatorName, value.verifiedDomain)
         findViewById<TextView>(R.id.registrationData).text = manifest.requestedFields.joinToString("\n\n") {
             val label = if (it == ServiceManifestParser.FIELD_AUTHENTICATION_PUBLIC_KEY)
-                getString(R.string.registration_public_key) else getString(R.string.registration_provider_id)
+                resources.getQuantityString(R.plurals.registration_public_keys, manifest.supportedProfiles.size, manifest.supportedProfiles.size)
+                else resources.getQuantityString(R.plurals.registration_provider_ids, manifest.supportedProfiles.size, manifest.supportedProfiles.size)
             getString(R.string.registration_field_purpose, label, manifest.purposes.getValue(it))
         }
-        val profiles = findViewById<RadioGroup>(R.id.registrationProfiles)
-        profiles.removeAllViews()
-        manifest.supportedProfiles.forEach { profile ->
-            profiles.addView(RadioButton(this).apply {
-                id = View.generateViewId()
-                tag = profile
-                text = getString(if (profile == ServiceManifestParser.PROFILE_BIOMETRIC)
-                    R.string.registration_method_biometric else R.string.registration_method_tap)
-                minHeight = (48 * resources.displayMetrics.density).toInt()
-            })
-        }
-        profiles.check(profiles.getChildAt(0).id)
         findViewById<Button>(R.id.registrationPolicy).setOnClickListener {
             startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(manifest.privacyPolicyUrl)))
         }
@@ -224,7 +208,6 @@ class RegistrationActivity : AppCompatActivity() {
         }
         findViewById<Button>(R.id.registrationCancel).setOnClickListener { cancelRegistration() }
         findViewById<Button>(R.id.registrationAgree).setOnClickListener {
-            selectedProfile = profiles.findViewById<RadioButton>(profiles.checkedRadioButtonId).tag as String
             it.isEnabled = false
             startAccountLink()
         }
@@ -243,7 +226,9 @@ class RegistrationActivity : AppCompatActivity() {
     private fun applyRegistrationInsets() {
         val root = findViewById<View>(R.id.registrationRoot)
         ViewCompat.setOnApplyWindowInsetsListener(root) { view, insets ->
-            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            val windowInsets = ViewCompat.getRootWindowInsets(view) ?: insets
+            val bars = windowInsets.getInsetsIgnoringVisibility(WindowInsetsCompat.Type.systemBars())
+            val gestures = windowInsets.getInsets(WindowInsetsCompat.Type.mandatorySystemGestures())
             view.post {
                 val rootLocation = IntArray(2)
                 view.getLocationOnScreen(rootLocation)
@@ -252,7 +237,7 @@ class RegistrationActivity : AppCompatActivity() {
                 actionBar?.getLocationOnScreen(barLocation)
                 val barBottom = if (actionBar?.visibility == View.VISIBLE) barLocation[1] + actionBar.height else 0
                 view.setPadding(bars.left, maxOf(0, bars.top - rootLocation[1], barBottom - rootLocation[1]),
-                    bars.right, bars.bottom)
+                    bars.right, maxOf(bars.bottom, gestures.bottom))
             }
             insets
         }
@@ -261,17 +246,18 @@ class RegistrationActivity : AppCompatActivity() {
 
     private fun startAccountLink() {
         val service = verified ?: return fail("Provider registration expired")
-        val profile = selectedProfile ?: return fail("Credential profile is missing")
-        val publicKey = keys.getPublicKeyAsString(
-            service.manifest.serviceOrigin,
-            service.manifest.serviceId,
-            profile,
-        )
+        if (ServiceManifestParser.PROFILE_BIOMETRIC in service.manifest.supportedProfiles &&
+            BiometricManager.from(this).canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_STRONG) != BiometricManager.BIOMETRIC_SUCCESS
+        ) return fail("Set up fingerprint or face unlock in Android settings to register with this provider.")
+        val publicKeys = JSONObject()
+        service.manifest.supportedProfiles.forEach { profile ->
+            publicKeys.put(profile, keys.getPublicKeyAsString(service.manifest.serviceOrigin, service.manifest.serviceId, profile))
+        }
         executor.execute {
             try {
                 val response = postJson(
                     service.manifest.registrationEndpoint,
-                    JSONObject().put("profile", profile).put("public_key", publicKey),
+                    JSONObject().put("public_keys", publicKeys),
                 )
                 registrationId = response.getString("registration_id")
                 val authorizationUrl = response.getString("authorization_url")
@@ -285,18 +271,21 @@ class RegistrationActivity : AppCompatActivity() {
     private fun handleCallback(uri: Uri) {
         val id = uri.getQueryParameter("registration_id") ?: return fail("Registration callback is incomplete")
         val code = uri.getQueryParameter("completion_code") ?: return fail("Registration callback is incomplete")
-        if (registrationId != id || verified == null || selectedProfile == null) {
+        if (registrationId != id || verified == null) {
             return fail("Registration state was lost; please start again")
         }
         completionCode = code
         val payload = completionPayload(id, code)
-        if (selectedProfile == ServiceManifestParser.PROFILE_BIOMETRIC) {
+        val service = verified!!.manifest
+        PendingRegistrationSession.completionSignatures.clear()
+        if (ServiceManifestParser.PROFILE_POSSESSION in service.supportedProfiles) {
+            PendingRegistrationSession.completionSignatures[ServiceManifestParser.PROFILE_POSSESSION] =
+                keys.sign(service.serviceOrigin, service.serviceId, ServiceManifestParser.PROFILE_POSSESSION, payload)
+        }
+        if (ServiceManifestParser.PROFILE_BIOMETRIC in service.supportedProfiles) {
             biometricRegistrationProof(payload)
         } else {
-            val service = verified!!.manifest
-            completeAccountLink(
-                keys.sign(service.serviceOrigin, service.serviceId, selectedProfile!!, payload),
-            )
+            completeAccountLink()
         }
     }
 
@@ -315,7 +304,9 @@ class RegistrationActivity : AppCompatActivity() {
                     try {
                         val unlocked = result.cryptoObject?.signature ?: error("Key was not unlocked")
                         unlocked.update(payload)
-                        completeAccountLink(Base64.encodeToString(unlocked.sign(), Base64.NO_WRAP))
+                        PendingRegistrationSession.completionSignatures[ServiceManifestParser.PROFILE_BIOMETRIC] =
+                            Base64.encodeToString(unlocked.sign(), Base64.NO_WRAP)
+                        completeAccountLink()
                     } catch (_: Exception) {
                         fail("Registration key proof failed")
                     }
@@ -328,37 +319,45 @@ class RegistrationActivity : AppCompatActivity() {
         )
         val info = BiometricPrompt.PromptInfo.Builder()
             .setTitle("Register with ${service.serviceName}")
-            .setSubtitle("Create the biometric credential")
+            .setSubtitle("Confirm this phone for fingerprint or face sign-in")
             .setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_STRONG)
             .setNegativeButtonText(getString(R.string.dialog_button_cancel))
             .build()
         prompt.authenticate(info, BiometricPrompt.CryptoObject(signature))
     }
 
-    private fun completeAccountLink(signature: String) {
+    private fun completeAccountLink() {
         val value = verified ?: return fail("Provider registration expired")
         val id = registrationId ?: return fail("Registration ID is missing")
         val code = completionCode ?: return fail("Completion code is missing")
+        val signatures = JSONObject(PendingRegistrationSession.completionSignatures.toMap())
         executor.execute {
             try {
                 val response = postJson(
                     value.manifest.registrationEndpoint.trimEnd('/') + "/$id/complete",
-                    JSONObject().put("completion_code", code).put("signature", signature),
+                    JSONObject().put("completion_code", code).put("signatures", signatures),
                 )
                 val manifest = value.manifest
                 require(response.getString("service_id") == manifest.serviceId)
-                require(response.getString("profile") == selectedProfile)
+                val credentials = response.getJSONArray("credentials")
+                require(credentials.length() == manifest.supportedProfiles.size)
+                val profiles = (0 until credentials.length()).map { credentials.getJSONObject(it).getString("profile") }
+                require(profiles.toSet() == manifest.supportedProfiles.toSet())
+                val identifiers = (0 until credentials.length()).map { credentials.getJSONObject(it).getString("credential_id") }
+                require(identifiers.all { it.isNotBlank() } && identifiers.toSet().size == identifiers.size)
                 val now = System.currentTimeMillis() / 1000L
-                val expiresAtSeconds = response.getLong("registration_expires_at")
+                val records = (0 until credentials.length()).map { index ->
+                val credential = credentials.getJSONObject(index)
+                val expiresAtSeconds = credential.getLong("registration_expires_at")
                 require(expiresAtSeconds > now)
                 require(expiresAtSeconds - now <= (manifest.registrationLifetimeDays + 1L) * 86_400L)
-                val record = ServiceRegistration(
+                ServiceRegistration(
                     manifest.serviceOrigin,
                     manifest.serviceId,
                     manifest.serviceName,
                     manifest.operatorName,
-                    response.getString("credential_id"),
-                    selectedProfile!!,
+                    credential.getString("credential_id"),
+                    credential.getString("profile"),
                     manifest.privacyPolicyUrl,
                     manifest.privacyNoticeVersion,
                     manifest.requestedFields,
@@ -372,7 +371,8 @@ class RegistrationActivity : AppCompatActivity() {
                     manifest.allowedAudiences,
                     manifest.allowedScopes,
                 )
-                require(database.saveRegistration(record))
+                }
+                require(database.saveRegistrations(records))
                 runOnUiThread {
                     Toast.makeText(this, "Registered with ${manifest.serviceName}", Toast.LENGTH_LONG).show()
                     PendingRegistrationSession.clear()

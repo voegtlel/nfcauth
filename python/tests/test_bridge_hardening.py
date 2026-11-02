@@ -62,7 +62,7 @@ async def test_concurrent_consume_is_one_use() -> None:
 
 
 @pytest.mark.parametrize("endpoint,body,status", [
-    ("/v1/registrations/registration-id/complete", {"completion_code": "code", "signature": "bad"}, 400),
+    ("/v1/registrations/registration-id/complete", {"completion_code": "code", "signatures": {"possession": "bad"}}, 400),
     ("/v1/registration-renewals/renewal-id/complete", {"signature": "bad"}, 400),
     ("/v1/transactions/transaction-id/complete", {
         "protocol_version": 4, "transaction_id": "transaction-id", "request_hash": "hash",

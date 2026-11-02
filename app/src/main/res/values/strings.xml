@@ -47,12 +47,17 @@
     <string name="registration_summary">Use your phone to sign in to %1$s. If you agree, the information below will be sent securely to this provider.</string>
     <string name="registration_identity">Run by: %1$s\nVerified website: %2$s</string>
     <string name="registration_data_heading">What will be shared</string>
-    <string name="registration_public_key">A public sign-in key (your private key stays on your phone)</string>
-    <string name="registration_provider_id">An ID used only with this provider</string>
+    <plurals name="registration_public_keys">
+        <item quantity="one">%d public sign-in key (the private key stays on your phone)</item>
+        <item quantity="other">%d public sign-in keys (the private keys stay on your phone)</item>
+    </plurals>
+    <plurals name="registration_provider_ids">
+        <item quantity="one">%d ID used only with this provider</item>
+        <item quantity="other">%d IDs used only with this provider</item>
+    </plurals>
     <string name="registration_field_purpose">• %1$s\nWhy: %2$s</string>
-    <string name="registration_method_heading">How would you like to sign in?</string>
-    <string name="registration_method_biometric">Fingerprint or face, then tap to confirm</string>
-    <string name="registration_method_tap">Tap phone only (no fingerprint or face)</string>
+    <string name="registration_method_heading">How sign-in works</string>
+    <string name="registration_method_explanation">The terminal sets the sign-in method. When fingerprint or face confirmation is required, your phone will ask you to confirm.</string>
     <string name="registration_read_policy">Read privacy policy</string>
     <string name="registration_deletion">To delete data held by this provider:\n%1$s</string>
     <string name="registration_lifetime">Valid for %1$d days. Signing in or renewing extends this time. No automatic check-ins.\nPrivacy notice: %2$s</string>

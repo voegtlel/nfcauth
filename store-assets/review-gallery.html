@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>NFC Authenticator — pre-release views</title>
+  <style>
+    body { font: 16px/1.5 system-ui, sans-serif; margin: 0 auto; padding: 24px; max-width: 1400px; background: #f4f5f8; color: #20242a; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fill,minmax(220px,1fr)); gap: 20px; }
+    figure { margin: 0; padding: 12px; background: white; border-radius: 8px; }
+    img { display: block; width: 100%; height: 360px; object-fit: contain; }
+    figcaption { padding-top: 8px; } h2 { margin-top: 36px; }
+  </style>
+</head>
+<body>
+  <h1>Pre-release screen review</h1>
+  <p>Click any image for full resolution. Example data only. The release is on hold.</p>
+  <p>Renewal and approval notices are debug-only UI previews, not real authenticated
+    sessions. Provider login and Android biometric system prompts require a live
+    provider/enrolled device and are not included. See REVIEW.md.</p>
+  <main id="gallery"></main>
+  <script>
+    const screens = [
+      ['01-home-empty', 'Home — empty'],
+      ['review/provider-address', 'Enter provider address'],
+      ['review/overflow-menu', 'Overflow menu'],
+      ['review/about-menu', 'About menu'],
+      ['review/registration-link-confirmation', 'QR link confirmation'],
+      ['02-registration-disclosure', 'Registration — information'],
+      ['03-registration-confirmation', 'Registration — actions'],
+      ['review/registration-permissions', 'Registration — permissions'],
+      ['04-registered-service', 'Home — registered'],
+      ['05-service-details', 'Service details'],
+      ['review/service-details-lower', 'Service details — lower'],
+      ['06-delete-local-confirmation', 'Delete local registration'],
+      ['review/renewal-confirmation-preview', 'Renewal confirmation — preview'],
+      ['review/expired-registration', 'Home — expired registration'],
+      ['review/expired-registration-details', 'Expired registration details'],
+      ['review/provider-not-registered', 'Provider not registered'],
+      ['review/biometric-approval-preview', 'Approved — preview'],
+      ['07-app-privacy-policy', 'App privacy policy'],
+      ['review/app-policy-lower', 'App privacy policy — lower'],
+    ];
+    function group(title, entries) {
+      const heading = document.createElement('h2'); heading.textContent = title;
+      const grid = document.createElement('div'); grid.className = 'grid';
+      for (const [path, caption] of entries) {
+        const figure = document.createElement('figure');
+        const link = document.createElement('a'); link.href = path;
+        const image = document.createElement('img'); image.src = path; image.alt = caption; image.loading = 'lazy';
+        const label = document.createElement('figcaption'); label.textContent = caption;
+        link.append(image); figure.append(link, label); grid.append(figure);
+      }
+      document.getElementById('gallery').append(heading, grid);
+    }
+    group('Phone', screens.map(([path, title]) => ['screenshots/play-store-phone-9x16/' + path + '.png', title]));
+    group('7-inch tablet', screens.map(([path, title]) => ['screenshots/play-store-tablet-7-inch/' + path + '.png', title]));
+    group('QR landing page', [
+      ['screenshots/play-store-web-review/registration-390,844.png', 'Phone browser'],
+      ['screenshots/play-store-web-review/registration-800,1280.png', 'Tablet browser'],
+      ['screenshots/play-store-web-review/invalid-link.png', 'Invalid link'],
+    ]);
+  </script>
+</body>
+</html>
