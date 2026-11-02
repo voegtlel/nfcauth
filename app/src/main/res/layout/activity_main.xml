@@ -10,9 +10,16 @@
         android:id="@+id/statusText"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="@string/no_readers_registered"
+        android:text="@string/no_services_registered"
         android:textSize="16sp"
         android:layout_marginBottom="16dp"/>
+
+    <Button
+        android:id="@+id/registerProviderButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Register with provider"
+        android:layout_marginBottom="8dp"/>
 
     <Button
         android:id="@+id/infoButton"
@@ -28,7 +35,7 @@
         android:layout_weight="1">
 
         <androidx.recyclerview.widget.RecyclerView
-            android:id="@+id/readersRecyclerView"
+            android:id="@+id/registrationsRecyclerView"
             android:layout_width="match_parent"
             android:layout_height="match_parent"/>
 

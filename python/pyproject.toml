@@ -4,35 +4,50 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "nfc-authenticator"
-version = "1.0.0"
-description = "NFC MFC Authenticator Card Reader Library"
+version = "4.0.0"
+description = "Privacy-aware NFC Auth v4 terminal and provider bridge"
 readme = "README.md"
 authors = [
-    {name = "NFC MFC Auth Team"}
+    {name = "Lukas Voegtle"}
 ]
-requires-python = ">=3.9"
+requires-python = ">=3.11"
 dependencies = [
-    "RPi.GPIO>=0.7.1",
-    "adafruit-circuitpython-pn532>=2.4.3",
-    "adafruit-circuitpython-busdevice>=5.2.11",
     "cryptography>=3.4.0",
+    "fastapi>=0.115,<1",
+    "httpx>=0.27,<1",
+    "pydantic-settings>=2.5,<3",
+    "PyJWT[crypto]>=2.9,<3",
+    "sqlalchemy[asyncio]>=2.0,<3",
+    "aiosqlite>=0.20,<1",
+    "asyncpg>=0.29,<1",
+    "uvicorn[standard]>=0.30,<1",
 ]
 
 [project.optional-dependencies]
+pn532 = [
+    "RPi.GPIO>=0.7.1",
+    "adafruit-circuitpython-pn532>=2.4.3",
+    "adafruit-circuitpython-busdevice>=5.2.11",
+]
 dev = [
+  "mypy>=1.13,<2",
+  "pytest>=8,<9",
+  "pytest-asyncio>=0.24,<1",
   "ruff",
 ]
 
 [project.scripts]
-nfc-reader-auth = "nfc_authenticator.nfc_reader:main"
+nfc-auth-bridge = "nfc_authenticator.bridge.main:run"
 
-[tool.setuptools]
-packages = ["nfc_authenticator"]
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["nfc_authenticator*"]
 
 [tool.ruff]
 line-length = 120
-target-version = "py39"
+target-version = "py311"
 exclude = [
     ".git",
     "__pycache__",
+    "build",
 ]

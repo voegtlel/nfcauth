@@ -1,0 +1,10 @@
+{
+  "terminals": [
+    {
+      "subject": "REPLACE_WITH_TERMINAL_TOKEN_SUBJECT",
+      "allowed_audiences": ["inventory-api"],
+      "allowed_scopes": ["inventory.read"],
+      "allowed_assurance": ["biometric"]
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+# Optional override when Authentik runs on the same Docker host. The complete
+# NFC Auth stack still provides Caddy and PostgreSQL; only the bridge joins
+# Authentik's existing network for OIDC and terminal-token validation.
+services:
+  bridge:
+    networks:
+      - backend
+      - egress
+      - authentik
+
+networks:
+  authentik:
+    external: true
+    name: ${AUTHENTIK_DOCKER_NETWORK}

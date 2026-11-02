@@ -8,174 +8,123 @@ import android.database.sqlite.SQLiteOpenHelper
 import org.json.JSONArray
 import org.json.JSONObject
 
-class AuthDatabase(context: Context) :
-    SQLiteOpenHelper(context, DATABASE_NAME, null, DATABASE_VERSION) {
-
-    companion object {
-        private const val DATABASE_NAME = "auth.db"
-        private const val DATABASE_VERSION = 2
-        private const val TABLE_SERVICES = "services"
-
-        private const val SERVICE_ID = "service_id"
-        private const val SERVICE_NAME = "service_name"
-        private const val OPERATOR_NAME = "operator_name"
-        private const val IDENTITY_VERIFIED = "identity_verified"
-        private const val USER_ID = "user_id"
-        private const val USER_ALIAS = "user_alias"
-        private const val PRIVACY_POLICY_URL = "privacy_policy_url"
-        private const val PRIVACY_NOTICE_VERSION = "privacy_notice_version"
-        private const val REQUESTED_FIELDS = "requested_fields"
-        private const val PURPOSES = "purposes"
-        private const val DELETION_CONTACT = "deletion_contact"
-        private const val ENCRYPTION_FINGERPRINT = "encryption_fingerprint"
-        private const val SIGNING_FINGERPRINT = "signing_fingerprint"
-        private const val MANIFEST_HASH = "manifest_hash"
-        private const val APPROVED_AT = "approved_at"
-
-        private val columns = arrayOf(
-            SERVICE_ID,
-            SERVICE_NAME,
-            OPERATOR_NAME,
-            IDENTITY_VERIFIED,
-            USER_ID,
-            USER_ALIAS,
-            PRIVACY_POLICY_URL,
-            PRIVACY_NOTICE_VERSION,
-            REQUESTED_FIELDS,
-            PURPOSES,
-            DELETION_CONTACT,
-            ENCRYPTION_FINGERPRINT,
-            SIGNING_FINGERPRINT,
-            MANIFEST_HASH,
-            APPROVED_AT,
-        )
-    }
-
+class AuthDatabase(context: Context) : SQLiteOpenHelper(context, "auth-v4.db", null, 1) {
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL(
             """
-            CREATE TABLE $TABLE_SERVICES (
-                $SERVICE_ID TEXT PRIMARY KEY,
-                $SERVICE_NAME TEXT NOT NULL,
-                $OPERATOR_NAME TEXT NOT NULL,
-                $IDENTITY_VERIFIED INTEGER NOT NULL,
-                $USER_ID TEXT NOT NULL,
-                $USER_ALIAS TEXT,
-                $PRIVACY_POLICY_URL TEXT NOT NULL,
-                $PRIVACY_NOTICE_VERSION TEXT NOT NULL,
-                $REQUESTED_FIELDS TEXT NOT NULL,
-                $PURPOSES TEXT NOT NULL,
-                $DELETION_CONTACT TEXT NOT NULL,
-                $ENCRYPTION_FINGERPRINT TEXT NOT NULL,
-                $SIGNING_FINGERPRINT TEXT NOT NULL,
-                $MANIFEST_HASH TEXT NOT NULL,
-                $APPROVED_AT INTEGER NOT NULL
+            CREATE TABLE services (
+              service_id TEXT NOT NULL,
+              authentication_profile TEXT NOT NULL,
+              service_origin TEXT NOT NULL,
+              service_name TEXT NOT NULL,
+              operator_name TEXT NOT NULL,
+              credential_id TEXT NOT NULL,
+              privacy_policy_url TEXT NOT NULL,
+              privacy_notice_version TEXT NOT NULL,
+              requested_fields TEXT NOT NULL,
+              purposes TEXT NOT NULL,
+              deletion_contact TEXT NOT NULL,
+              certificate_fingerprint TEXT NOT NULL,
+              verified_domain TEXT NOT NULL,
+              manifest_hash TEXT NOT NULL,
+              approved_at INTEGER NOT NULL,
+              registration_expires_at INTEGER NOT NULL,
+              allowed_audiences TEXT NOT NULL,
+              allowed_scopes TEXT NOT NULL,
+              PRIMARY KEY(service_origin, service_id, authentication_profile)
             )
             """.trimIndent(),
         )
     }
 
-    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
-        if (oldVersion < 2) {
-            // Legacy registrations shared one signing key and had no authenticated
-            // encryption identity. They cannot be migrated safely; users must
-            // approve a new privacy-aware registration.
-            db.execSQL("DROP TABLE IF EXISTS readers")
-            db.execSQL("DROP TABLE IF EXISTS $TABLE_SERVICES")
-            onCreate(db)
+    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) =
+        error("Database schema upgrades are unsupported")
+
+    fun getAllRegistrations(): List<ServiceRegistration> {
+        val registrations = mutableListOf<ServiceRegistration>()
+        readableDatabase.query("services", null, null, null, null, null, "service_name COLLATE NOCASE").use {
+            while (it.moveToNext()) it.toRegistration()?.let(registrations::add)
         }
+        return registrations
     }
 
-    fun getAllReaders(): List<ReaderInfo> {
-        val readers = mutableListOf<ReaderInfo>()
+    fun getRegistration(serviceOrigin: String, serviceId: String, profile: String): ServiceRegistration? =
         readableDatabase.query(
-            TABLE_SERVICES,
-            columns,
-            null,
-            null,
-            null,
-            null,
-            "$SERVICE_NAME COLLATE NOCASE ASC",
-        ).use { cursor ->
-            while (cursor.moveToNext()) {
-                cursor.toReaderInfoOrNull()?.let(readers::add)
-            }
-        }
-        return readers
-    }
+            "services", null, "service_origin=? AND service_id=? AND authentication_profile=?",
+            arrayOf(serviceOrigin, serviceId, profile), null, null, null,
+        ).use { if (it.moveToFirst()) it.toRegistration() else null }
 
-    fun getReaderInfo(serviceId: String): ReaderInfo? =
-        readableDatabase.query(
-            TABLE_SERVICES,
-            columns,
-            "$SERVICE_ID = ?",
-            arrayOf(serviceId),
-            null,
-            null,
-            null,
-        ).use { cursor ->
-            if (cursor.moveToFirst()) cursor.toReaderInfoOrNull() else null
-        }
-
-    fun registerReader(reader: ReaderInfo): Boolean {
+    fun saveRegistration(registration: ServiceRegistration): Boolean {
         val values = ContentValues().apply {
-            put(SERVICE_ID, reader.serviceId)
-            put(SERVICE_NAME, reader.serviceName)
-            put(OPERATOR_NAME, reader.operatorName)
-            put(IDENTITY_VERIFIED, if (reader.identityVerified) 1 else 0)
-            put(USER_ID, reader.userId)
-            if (reader.alias == null) putNull(USER_ALIAS) else put(USER_ALIAS, reader.alias)
-            put(PRIVACY_POLICY_URL, reader.privacyPolicyUrl)
-            put(PRIVACY_NOTICE_VERSION, reader.privacyNoticeVersion)
-            put(REQUESTED_FIELDS, JSONArray(reader.requestedFields).toString())
-            put(PURPOSES, JSONObject(reader.purposes).toString())
-            put(DELETION_CONTACT, reader.deletionUrlOrContact)
-            put(ENCRYPTION_FINGERPRINT, reader.encryptionKeyFingerprint)
-            put(SIGNING_FINGERPRINT, reader.signingKeyFingerprint)
-            put(MANIFEST_HASH, reader.manifestHash)
-            put(APPROVED_AT, reader.approvedAt)
+            put("service_id", registration.serviceId)
+            put("authentication_profile", registration.authenticationProfile)
+            put("service_origin", registration.serviceOrigin)
+            put("service_name", registration.serviceName)
+            put("operator_name", registration.operatorName)
+            put("credential_id", registration.credentialId)
+            put("privacy_policy_url", registration.privacyPolicyUrl)
+            put("privacy_notice_version", registration.privacyNoticeVersion)
+            put("requested_fields", JSONArray(registration.requestedFields).toString())
+            put("purposes", JSONObject(registration.purposes).toString())
+            put("deletion_contact", registration.deletionUrlOrContact)
+            put("certificate_fingerprint", registration.certificateFingerprint)
+            put("verified_domain", registration.verifiedDomain)
+            put("manifest_hash", registration.manifestHash)
+            put("approved_at", registration.approvedAt)
+            put("registration_expires_at", registration.registrationExpiresAt)
+            put("allowed_audiences", JSONArray(registration.allowedAudiences).toString())
+            put("allowed_scopes", JSONArray(registration.allowedScopes).toString())
         }
         return writableDatabase.insertWithOnConflict(
-            TABLE_SERVICES,
-            null,
-            values,
-            SQLiteDatabase.CONFLICT_REPLACE,
+            "services", null, values, SQLiteDatabase.CONFLICT_REPLACE,
         ) != -1L
     }
 
-    fun deleteReader(serviceId: String): Boolean =
-        writableDatabase.delete(TABLE_SERVICES, "$SERVICE_ID = ?", arrayOf(serviceId)) > 0
+    fun deleteRegistration(serviceOrigin: String, serviceId: String, profile: String): Boolean =
+        writableDatabase.delete(
+            "services",
+            "service_origin=? AND service_id=? AND authentication_profile=?",
+            arrayOf(serviceOrigin, serviceId, profile),
+        ) > 0
 
-    private fun Cursor.toReaderInfoOrNull(): ReaderInfo? = try {
-        val fieldsJson = JSONArray(getString(getColumnIndexOrThrow(REQUESTED_FIELDS)))
+    fun updateRegistrationExpiration(
+        serviceOrigin: String,
+        serviceId: String,
+        profile: String,
+        expiresAt: Long,
+        certificateFingerprint: String,
+        verifiedDomain: String,
+    ): Boolean = writableDatabase.update(
+        "services",
+        ContentValues().apply {
+            put("registration_expires_at", expiresAt)
+            put("certificate_fingerprint", certificateFingerprint)
+            put("verified_domain", verifiedDomain)
+        },
+        "service_origin=? AND service_id=? AND authentication_profile=?",
+        arrayOf(serviceOrigin, serviceId, profile),
+    ) == 1
+
+    private fun Cursor.toRegistration(): ServiceRegistration? = try {
+        fun string(name: String) = getString(getColumnIndexOrThrow(name))
+        val fieldsJson = JSONArray(string("requested_fields"))
         val fields = (0 until fieldsJson.length()).map(fieldsJson::getString)
-        val purposesJson = JSONObject(getString(getColumnIndexOrThrow(PURPOSES)))
-        val purposes = linkedMapOf<String, String>()
-        val purposeKeys = purposesJson.keys()
-        while (purposeKeys.hasNext()) {
-            val key = purposeKeys.next()
-            purposes[key] = purposesJson.getString(key)
-        }
-        ReaderInfo(
-            serviceId = getString(getColumnIndexOrThrow(SERVICE_ID)),
-            serviceName = getString(getColumnIndexOrThrow(SERVICE_NAME)),
-            operatorName = getString(getColumnIndexOrThrow(OPERATOR_NAME)),
-            identityVerified = getInt(getColumnIndexOrThrow(IDENTITY_VERIFIED)) == 1,
-            userId = getString(getColumnIndexOrThrow(USER_ID)),
-            alias = getColumnIndexOrThrow(USER_ALIAS).let { index ->
-                if (isNull(index)) null else getString(index)
+        val purposeJson = JSONObject(string("purposes"))
+        val purposes = purposeJson.keys().asSequence().associateWith(purposeJson::getString)
+        ServiceRegistration(
+            string("service_origin"), string("service_id"), string("service_name"),
+            string("operator_name"), string("credential_id"), string("authentication_profile"),
+            string("privacy_policy_url"), string("privacy_notice_version"), fields, purposes,
+            string("deletion_contact"),
+            string("certificate_fingerprint"), string("verified_domain"),
+            string("manifest_hash"), getLong(getColumnIndexOrThrow("approved_at")),
+            getLong(getColumnIndexOrThrow("registration_expires_at")),
+            JSONArray(string("allowed_audiences")).let { values ->
+                (0 until values.length()).map(values::getString)
             },
-            privacyPolicyUrl = getString(getColumnIndexOrThrow(PRIVACY_POLICY_URL)),
-            privacyNoticeVersion = getString(getColumnIndexOrThrow(PRIVACY_NOTICE_VERSION)),
-            requestedFields = fields,
-            purposes = purposes,
-            deletionUrlOrContact = getString(getColumnIndexOrThrow(DELETION_CONTACT)),
-            encryptionKeyFingerprint = getString(
-                getColumnIndexOrThrow(ENCRYPTION_FINGERPRINT),
-            ),
-            signingKeyFingerprint = getString(getColumnIndexOrThrow(SIGNING_FINGERPRINT)),
-            manifestHash = getString(getColumnIndexOrThrow(MANIFEST_HASH)),
-            approvedAt = getLong(getColumnIndexOrThrow(APPROVED_AT)),
+            JSONArray(string("allowed_scopes")).let { values ->
+                (0 until values.length()).map(values::getString)
+            },
         )
     } catch (_: Exception) {
         null

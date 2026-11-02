@@ -33,11 +33,24 @@
         <activity
             android:name=".RegistrationActivity"
             android:theme="@style/Theme.Dialog"
-            android:exported="false" />
+            android:launchMode="singleTask"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="nfcauth" android:host="registration-complete" />
+            </intent-filter>
+        </activity>
 
         <activity
             android:name=".AppPrivacyPolicyActivity"
             android:exported="false" />
+
+        <activity
+            android:name=".RenewalActivity"
+            android:exported="false"
+            android:theme="@style/Theme.Dialog" />
 
         <activity
             android:name=".BiometricPromptActivity"
@@ -47,12 +60,12 @@
             android:turnScreenOn="true" />
 
         <activity
-            android:name=".NotRegisteredDialog"
+            android:name=".UnregisteredServiceDialog"
             android:theme="@android:style/Theme.Dialog"
             android:exported="false" />
 
         <service
-            android:name=".CardEmulationAuthService"
+            android:name=".PossessionCardEmulationAuthService"
             android:exported="true"
             android:enabled="true"
             android:requireDeviceUnlock="false"
@@ -62,7 +75,21 @@
             </intent-filter>
             <meta-data
                 android:name="android.nfc.cardemulation.host_apdu_service"
-                android:resource="@xml/aid_list" />
+                android:resource="@xml/aid_possession" />
+        </service>
+
+        <service
+            android:name=".BiometricCardEmulationAuthService"
+            android:exported="true"
+            android:enabled="true"
+            android:requireDeviceUnlock="false"
+            android:permission="android.permission.BIND_NFC_SERVICE">
+            <intent-filter>
+                <action android:name="android.nfc.cardemulation.action.HOST_APDU_SERVICE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.nfc.cardemulation.host_apdu_service"
+                android:resource="@xml/aid_biometric" />
         </service>
 
     </application>

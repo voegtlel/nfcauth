@@ -1,5 +1,7 @@
 package de.infornautik.nfcauth
 
+import java.io.ByteArrayOutputStream
+import java.io.DataOutputStream
 import java.math.BigInteger
 import java.nio.charset.StandardCharsets
 import java.security.KeyFactory
@@ -17,321 +19,194 @@ import javax.crypto.Mac
 import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.SecretKeySpec
 
-/**
- * Version 2 NFC transport encryption.
- *
- * Each NFC presentation starts with an ephemeral P-256 ECDH handshake. The
- * resulting secret is expanded with HKDF-SHA-256 and used only for this NFC
- * session with AES-256-GCM. Handshake public keys and random session IDs are
- * not confidential; every application payload is encrypted and authenticated.
- */
+data class NfcSessionContext(
+    val sessionId: ByteArray,
+    val phoneChallenge: ByteArray,
+    val readerEphemeralPublicKey: ByteArray,
+    val phoneEphemeralPublicKey: ByteArray,
+)
+
 class NfcSessionCrypto private constructor(
     private val sessionId: ByteArray,
-    keyBytes: ByteArray,
+    private var rootKey: ByteArray,
     private val sendDirection: Byte,
     private val receiveDirection: Byte,
-    sendCounter: ULong = 0uL,
-    receiveCounter: ULong = 0uL,
 ) {
     data class AcceptedSession(
         val session: NfcSessionCrypto,
         val response: ByteArray,
+        val context: NfcSessionContext,
     )
 
-    class Initiator internal constructor(
-        private val sessionId: ByteArray,
-        private val keyPair: KeyPair,
-    ) {
-        val request: ByteArray = encodeHandshake(sessionId, encodePublicKey(keyPair))
+    private var transportKey = ByteArray(0)
+    private var sendCounter = 0uL
+    private var receiveCounter = 0uL
+    private var authenticated = false
+    private var terminated = false
+    private val random = SecureRandom()
 
-        fun complete(response: ByteArray): NfcSessionCrypto {
-            val parsed = parseHandshake(response)
-            require(MessageDigest.isEqual(sessionId, parsed.sessionId)) {
-                "NFC session ID mismatch"
-            }
-            return deriveSession(sessionId, keyPair, parsed.publicKey, isInitiator = true)
-        }
+    init {
+        deriveSubkeys()
     }
 
-    private val key = SecretKeySpec(keyBytes.copyOf(), AES_ALGORITHM)
-    private val random = SecureRandom()
-    private var sendCounter = sendCounter
-    private var receiveCounter = receiveCounter
-    private var terminated = false
+    @Synchronized
+    fun authenticate(transcriptHash: ByteArray) {
+        require(!authenticated && transcriptHash.size == 32) { "Invalid session authentication state" }
+        val updated = hkdf(rootKey, sessionId, AUTHENTICATED_INFO + transcriptHash)
+        rootKey.fill(0)
+        rootKey = updated
+        deriveSubkeys()
+        sendCounter = 0uL
+        receiveCounter = 0uL
+        authenticated = true
+    }
 
     @Synchronized
     fun encrypt(plaintext: ByteArray, purpose: String): ByteArray {
+        requirePurpose(purpose)
         require(!terminated) { "Encrypted NFC session is terminated" }
         if (sendCounter == ULong.MAX_VALUE) {
             terminated = true
-            throw IllegalArgumentException("Encrypted NFC send sequence exhausted")
+            error("Encrypted NFC send sequence exhausted")
         }
-        val sequence = sendCounter
-        val encodedSequence = encodeSequence(sequence)
-        val iv = ByteArray(GCM_IV_LENGTH).also(random::nextBytes)
-        val cipher = Cipher.getInstance(AES_TRANSFORMATION)
-        cipher.init(Cipher.ENCRYPT_MODE, key, GCMParameterSpec(GCM_TAG_BITS, iv))
-        cipher.updateAAD(authenticatedData(sendDirection, purpose, encodedSequence))
-        val ciphertext = cipher.doFinal(plaintext)
-
-        val envelope =
-            byteArrayOf(VERSION.toByte()) + sessionId + encodedSequence + iv + ciphertext
-        sendCounter = sequence + 1uL
-        return envelope
+        val sequence = encodeSequence(sendCounter)
+        val iv = ByteArray(12).also(random::nextBytes)
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(Cipher.ENCRYPT_MODE, SecretKeySpec(transportKey, "AES"), GCMParameterSpec(128, iv))
+        cipher.updateAAD(aad(sendDirection, purpose, sequence))
+        val result = byteArrayOf(VERSION.toByte()) + sessionId + sequence + iv + cipher.doFinal(plaintext)
+        sendCounter += 1u
+        return result
     }
 
     @Synchronized
     fun decrypt(envelope: ByteArray, purpose: String): ByteArray {
-        require(!terminated) { "Encrypted NFC session is terminated" }
-        require(envelope.size >= ENVELOPE_OVERHEAD + GCM_TAG_LENGTH) {
-            "Encrypted NFC payload is too short"
-        }
-        require(envelope[0].toUByte().toInt() == VERSION) {
-            "Unsupported encrypted NFC payload version"
-        }
-
-        val envelopeSessionId = envelope.copyOfRange(1, 1 + SESSION_ID_LENGTH)
-        require(MessageDigest.isEqual(sessionId, envelopeSessionId)) {
-            "Encrypted NFC payload belongs to another session"
-        }
-
-        if (receiveCounter == ULong.MAX_VALUE) {
-            terminated = true
-            throw IllegalArgumentException("Encrypted NFC receive sequence exhausted")
-        }
-        val sequenceStart = 1 + SESSION_ID_LENGTH
-        val ivStart = sequenceStart + SEQUENCE_LENGTH
-        val encodedSequence = envelope.copyOfRange(sequenceStart, ivStart)
-        val sequence = decodeSequence(encodedSequence)
-        require(sequence == receiveCounter) {
-            "Unexpected encrypted NFC sequence: expected $receiveCounter, received $sequence"
-        }
-
-        val ciphertextStart = ivStart + GCM_IV_LENGTH
-        val iv = envelope.copyOfRange(ivStart, ciphertextStart)
-        val ciphertext = envelope.copyOfRange(ciphertextStart, envelope.size)
-
-        val cipher = Cipher.getInstance(AES_TRANSFORMATION)
-        cipher.init(Cipher.DECRYPT_MODE, key, GCMParameterSpec(GCM_TAG_BITS, iv))
-        cipher.updateAAD(authenticatedData(receiveDirection, purpose, encodedSequence))
-        val plaintext = cipher.doFinal(ciphertext)
-        receiveCounter += 1uL
-        return plaintext
+        requirePurpose(purpose)
+        require(!terminated && envelope.size >= 53 && envelope[0].toInt() and 0xff == VERSION)
+        require(MessageDigest.isEqual(sessionId, envelope.copyOfRange(1, 17)))
+        val sequence = envelope.copyOfRange(17, 25)
+        require(decodeSequence(sequence) == receiveCounter) { "Unexpected encrypted NFC sequence" }
+        val iv = envelope.copyOfRange(25, 37)
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(Cipher.DECRYPT_MODE, SecretKeySpec(transportKey, "AES"), GCMParameterSpec(128, iv))
+        cipher.updateAAD(aad(receiveDirection, purpose, sequence))
+        val result = cipher.doFinal(envelope.copyOfRange(37, envelope.size))
+        receiveCounter += 1u
+        return result
     }
 
-    private fun authenticatedData(
-        direction: Byte,
-        purpose: String,
-        encodedSequence: ByteArray,
-    ): ByteArray {
-        require(purpose.isNotBlank()) { "NFC encryption purpose must not be blank" }
-        require(encodedSequence.size == SEQUENCE_LENGTH)
-        return byteArrayOf(VERSION.toByte()) +
-            sessionId +
-            byteArrayOf(direction) +
-            purpose.toByteArray(StandardCharsets.UTF_8) +
-            encodedSequence
+    private fun requirePurpose(purpose: String) {
+        require(purpose.isNotBlank())
+        require(authenticated || purpose == PURPOSE_SESSION_AUTHENTICATION) {
+            "Service identity must be authenticated first"
+        }
+    }
+
+    private fun deriveSubkeys() {
+        transportKey.fill(0)
+        transportKey = hkdf(rootKey, sessionId, "nfcauth-v4-transport".toByteArray())
+    }
+
+    private fun aad(direction: Byte, purpose: String, sequence: ByteArray): ByteArray {
+        val purposeBytes = purpose.toByteArray(StandardCharsets.UTF_8)
+        return ByteArrayOutputStream().also { bytes ->
+            DataOutputStream(bytes).use {
+                it.writeByte(VERSION)
+                it.write(sessionId)
+                it.writeByte(direction.toInt())
+                it.writeShort(purposeBytes.size)
+                it.write(purposeBytes)
+                it.write(sequence)
+            }
+        }.toByteArray()
     }
 
     companion object {
-        const val VERSION = 2
+        const val VERSION = 4
         const val SESSION_ID_LENGTH = 16
         const val PUBLIC_KEY_LENGTH = 65
-        const val SEQUENCE_LENGTH = 8
-        const val DIRECTION_READER_TO_PHONE = 0
-        const val DIRECTION_PHONE_TO_READER = 1
-
-        private const val GCM_IV_LENGTH = 12
-        private const val GCM_TAG_LENGTH = 16
-        private const val GCM_TAG_BITS = GCM_TAG_LENGTH * 8
-        private const val ENVELOPE_OVERHEAD =
-            1 + SESSION_ID_LENGTH + SEQUENCE_LENGTH + GCM_IV_LENGTH
-        private const val AES_ALGORITHM = "AES"
-        private const val AES_TRANSFORMATION = "AES/GCM/NoPadding"
-        private const val HKDF_ALGORITHM = "HmacSHA256"
-        private const val CURVE_NAME = "secp256r1"
-        private val HKDF_INFO = "nfcauth-nfc-session-v2".toByteArray(StandardCharsets.UTF_8)
-
-        fun createInitiator(): Initiator {
-            val sessionId = ByteArray(SESSION_ID_LENGTH).also(SecureRandom()::nextBytes)
-            return Initiator(sessionId, generateKeyPair())
-        }
+        const val PHONE_CHALLENGE_LENGTH = 32
+        const val PURPOSE_SESSION_AUTHENTICATION = "session-authentication"
+        private val PROVISIONAL_INFO = "nfcauth-v4-provisional-session".toByteArray()
+        private val AUTHENTICATED_INFO = "nfcauth-v4-authenticated-session".toByteArray()
 
         fun accept(request: ByteArray): AcceptedSession {
-            val parsed = parseHandshake(request)
-            val keyPair = generateKeyPair()
-            val session = deriveSession(
-                parsed.sessionId,
-                keyPair,
-                parsed.publicKey,
-                isInitiator = false,
+            require(request.size == 82 && request[0].toInt() and 0xff == VERSION)
+            val sessionId = request.copyOfRange(1, 17)
+            val readerPublic = request.copyOfRange(17, 82)
+            val phoneKey = generateKeyPair()
+            val phonePublic = encodePublicKey(phoneKey)
+            val challenge = ByteArray(PHONE_CHALLENGE_LENGTH).also(SecureRandom()::nextBytes)
+            val session = deriveSession(sessionId, phoneKey, readerPublic)
+            return AcceptedSession(
+                session,
+                byteArrayOf(VERSION.toByte()) + sessionId + phonePublic + challenge,
+                NfcSessionContext(sessionId, challenge, readerPublic, phonePublic),
             )
-            val response = encodeHandshake(parsed.sessionId, encodePublicKey(keyPair))
-            return AcceptedSession(session, response)
         }
 
         internal fun fromSharedSecretForTest(
             sessionId: ByteArray,
             sharedSecret: ByteArray,
             isInitiator: Boolean = true,
-            sendCounter: ULong = 0uL,
-            receiveCounter: ULong = 0uL,
         ): NfcSessionCrypto {
-            require(sessionId.size == SESSION_ID_LENGTH)
-            val keyBytes = hkdfSha256(sharedSecret, sessionId, HKDF_INFO, 32)
-            return createSession(
-                sessionId,
-                keyBytes,
-                isInitiator,
-                sendCounter,
-                receiveCounter,
-            ).also {
-                keyBytes.fill(0)
-            }
-        }
-
-        private data class ParsedHandshake(
-            val sessionId: ByteArray,
-            val publicKey: ByteArray,
-        )
-
-        private fun generateKeyPair(): KeyPair {
-            return KeyPairGenerator.getInstance("EC").run {
-                initialize(ECGenParameterSpec(CURVE_NAME), SecureRandom())
-                generateKeyPair()
-            }
-        }
-
-        private fun deriveSession(
-            sessionId: ByteArray,
-            ownKeyPair: KeyPair,
-            peerEncodedPublicKey: ByteArray,
-            isInitiator: Boolean,
-        ): NfcSessionCrypto {
-            val ownPublicKey = ownKeyPair.public as ECPublicKey
-            val peerPoint = decodePoint(peerEncodedPublicKey)
-            val peerPublicKey = KeyFactory.getInstance("EC").generatePublic(
-                ECPublicKeySpec(peerPoint, ownPublicKey.params),
-            )
-
-            val agreement = KeyAgreement.getInstance("ECDH")
-            agreement.init(ownKeyPair.private)
-            agreement.doPhase(peerPublicKey, true)
-            val sharedSecret = agreement.generateSecret()
-            val keyBytes = hkdfSha256(sharedSecret, sessionId, HKDF_INFO, 32)
-            sharedSecret.fill(0)
-            return createSession(sessionId, keyBytes, isInitiator).also {
-                keyBytes.fill(0)
-            }
-        }
-
-        private fun createSession(
-            sessionId: ByteArray,
-            keyBytes: ByteArray,
-            isInitiator: Boolean,
-            sendCounter: ULong = 0uL,
-            receiveCounter: ULong = 0uL,
-        ): NfcSessionCrypto {
-            val sendDirection = if (isInitiator) {
-                DIRECTION_READER_TO_PHONE
-            } else {
-                DIRECTION_PHONE_TO_READER
-            }
-            val receiveDirection = if (isInitiator) {
-                DIRECTION_PHONE_TO_READER
-            } else {
-                DIRECTION_READER_TO_PHONE
-            }
+            val root = hkdf(sharedSecret, sessionId, PROVISIONAL_INFO)
             return NfcSessionCrypto(
                 sessionId.copyOf(),
-                keyBytes,
-                sendDirection.toByte(),
-                receiveDirection.toByte(),
-                sendCounter,
-                receiveCounter,
+                root,
+                if (isInitiator) 0 else 1,
+                if (isInitiator) 1 else 0,
             )
         }
 
-        private fun encodeHandshake(sessionId: ByteArray, publicKey: ByteArray): ByteArray {
-            require(sessionId.size == SESSION_ID_LENGTH)
-            require(publicKey.size == PUBLIC_KEY_LENGTH)
-            return byteArrayOf(VERSION.toByte()) + sessionId + publicKey
-        }
-
-        private fun parseHandshake(payload: ByteArray): ParsedHandshake {
-            require(payload.size == 1 + SESSION_ID_LENGTH + PUBLIC_KEY_LENGTH) {
-                "Invalid NFC handshake length"
-            }
-            require(payload[0].toUByte().toInt() == VERSION) {
-                "Unsupported NFC protocol version"
-            }
-            return ParsedHandshake(
-                sessionId = payload.copyOfRange(1, 1 + SESSION_ID_LENGTH),
-                publicKey = payload.copyOfRange(1 + SESSION_ID_LENGTH, payload.size),
+        private fun deriveSession(sessionId: ByteArray, own: KeyPair, peerEncoded: ByteArray): NfcSessionCrypto {
+            val ownPublic = own.public as ECPublicKey
+            val point = ECPoint(
+                BigInteger(1, peerEncoded.copyOfRange(1, 33)),
+                BigInteger(1, peerEncoded.copyOfRange(33, 65)),
             )
+            require(peerEncoded.size == 65 && peerEncoded[0] == 4.toByte())
+            val peer = KeyFactory.getInstance("EC").generatePublic(ECPublicKeySpec(point, ownPublic.params))
+            val agreement = KeyAgreement.getInstance("ECDH")
+            agreement.init(own.private)
+            agreement.doPhase(peer, true)
+            val shared = agreement.generateSecret()
+            val root = hkdf(shared, sessionId, PROVISIONAL_INFO)
+            shared.fill(0)
+            return NfcSessionCrypto(sessionId, root, 1, 0)
         }
 
-        private fun encodePublicKey(keyPair: KeyPair): ByteArray {
-            val publicKey = keyPair.public as ECPublicKey
-            return byteArrayOf(0x04) +
-                toFixedLength(publicKey.w.affineX, 32) +
-                toFixedLength(publicKey.w.affineY, 32)
+        private fun generateKeyPair() = KeyPairGenerator.getInstance("EC").run {
+            initialize(ECGenParameterSpec("secp256r1"), SecureRandom())
+            generateKeyPair()
         }
 
-        private fun decodePoint(encoded: ByteArray): ECPoint {
-            require(encoded.size == PUBLIC_KEY_LENGTH && encoded[0] == 0x04.toByte()) {
-                "Invalid uncompressed P-256 public key"
-            }
-            val x = BigInteger(1, encoded.copyOfRange(1, 33))
-            val y = BigInteger(1, encoded.copyOfRange(33, 65))
-            return ECPoint(x, y)
+        private fun encodePublicKey(pair: KeyPair): ByteArray {
+            val key = pair.public as ECPublicKey
+            return byteArrayOf(4) + fixed(key.w.affineX) + fixed(key.w.affineY)
         }
 
-        private fun toFixedLength(value: BigInteger, length: Int): ByteArray {
-            val encoded = value.toByteArray()
-            val unsigned = if (encoded.size > length) {
-                encoded.copyOfRange(encoded.size - length, encoded.size)
-            } else {
-                encoded
-            }
-            require(unsigned.size <= length)
-            return ByteArray(length).also {
-                unsigned.copyInto(it, destinationOffset = length - unsigned.size)
-            }
+        private fun fixed(value: BigInteger): ByteArray {
+            val raw = value.toByteArray()
+            val unsigned = if (raw.size > 32) raw.copyOfRange(raw.size - 32, raw.size) else raw
+            return ByteArray(32).also { unsigned.copyInto(it, 32 - unsigned.size) }
         }
 
-        private fun encodeSequence(sequence: ULong): ByteArray {
-            return ByteArray(SEQUENCE_LENGTH) { index ->
-                (sequence shr ((SEQUENCE_LENGTH - 1 - index) * 8)).toByte()
-            }
-        }
+        private fun encodeSequence(value: ULong) =
+            ByteArray(8) { index -> (value shr ((7 - index) * 8)).toByte() }
 
-        private fun decodeSequence(encoded: ByteArray): ULong {
-            require(encoded.size == SEQUENCE_LENGTH)
-            return encoded.fold(0uL) { value, byte ->
-                (value shl 8) or byte.toUByte().toULong()
-            }
-        }
+        private fun decodeSequence(value: ByteArray) =
+            value.fold(0uL) { result, byte -> (result shl 8) or byte.toUByte().toULong() }
 
-        private fun hkdfSha256(
-            inputKeyMaterial: ByteArray,
-            salt: ByteArray,
-            info: ByteArray,
-            length: Int,
-        ): ByteArray {
-            require(length in 1..32) { "This HKDF implementation supports one SHA-256 block" }
-
-            val extract = Mac.getInstance(HKDF_ALGORITHM)
-            extract.init(SecretKeySpec(salt, HKDF_ALGORITHM))
-            val pseudoRandomKey = extract.doFinal(inputKeyMaterial)
-
-            val expand = Mac.getInstance(HKDF_ALGORITHM)
-            expand.init(SecretKeySpec(pseudoRandomKey, HKDF_ALGORITHM))
+        internal fun hkdf(ikm: ByteArray, salt: ByteArray, info: ByteArray): ByteArray {
+            val extract = Mac.getInstance("HmacSHA256")
+            extract.init(SecretKeySpec(salt, "HmacSHA256"))
+            val prk = extract.doFinal(ikm)
+            val expand = Mac.getInstance("HmacSHA256")
+            expand.init(SecretKeySpec(prk, "HmacSHA256"))
             expand.update(info)
-            expand.update(1.toByte())
-            val output = expand.doFinal().copyOf(length)
-            pseudoRandomKey.fill(0)
-            return output
+            expand.update(1)
+            return expand.doFinal().also { prk.fill(0) }
         }
     }
 }
