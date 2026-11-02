@@ -21,13 +21,6 @@
         android:text="Register with provider"
         android:layout_marginBottom="8dp"/>
 
-    <Button
-        android:id="@+id/infoButton"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="@string/app_privacy_policy_title"
-        android:layout_marginBottom="16dp"/>
-
     <androidx.swiperefreshlayout.widget.SwipeRefreshLayout
         android:id="@+id/swipeRefresh"
         android:layout_width="match_parent"

@@ -7,6 +7,8 @@ import android.text.SpannableStringBuilder
 import android.text.Spanned
 import android.text.method.LinkMovementMethod
 import android.text.style.URLSpan
+import android.view.Menu
+import android.view.MenuItem
 import android.widget.Button
 import android.widget.EditText
 import android.widget.TextView
@@ -46,11 +48,21 @@ class MainActivity : AppCompatActivity() {
             loadRegistrations()
             swipeRefresh.isRefreshing = false
         }
-        findViewById<Button>(R.id.infoButton).setOnClickListener {
-            startActivity(Intent(this, AppPrivacyPolicyActivity::class.java))
-        }
         findViewById<Button>(R.id.registerProviderButton).setOnClickListener { showProviderEntry() }
         loadRegistrations()
+    }
+
+    override fun onCreateOptionsMenu(menu: Menu): Boolean {
+        menuInflater.inflate(R.menu.main_menu, menu)
+        return true
+    }
+
+    override fun onOptionsItemSelected(item: MenuItem): Boolean {
+        if (item.itemId == R.id.viewPrivacyPolicy) {
+            startActivity(Intent(this, AppPrivacyPolicyActivity::class.java))
+            return true
+        }
+        return super.onOptionsItemSelected(item)
     }
 
     private fun applySystemBarInsets() {
