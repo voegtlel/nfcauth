@@ -75,7 +75,7 @@
 
         <activity
             android:name=".UnregisteredServiceDialog"
-            android:theme="@style/Theme.Dialog"
+            android:theme="@style/Theme.ProviderNotice"
             android:exported="false" />
 
         <service
