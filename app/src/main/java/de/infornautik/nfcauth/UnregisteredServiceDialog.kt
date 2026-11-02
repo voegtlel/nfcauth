@@ -11,6 +11,7 @@ import android.view.View
 class UnregisteredServiceDialog : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        supportActionBar?.hide()
         
         setContentView(R.layout.activity_unregistered_service_dialog)
 
