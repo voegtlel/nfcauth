@@ -6,11 +6,19 @@ import android.content.pm.ApplicationInfo
 import android.net.Uri
 import android.os.Bundle
 import android.util.Base64
+import android.view.View
+import android.widget.Button
+import android.widget.RadioButton
+import android.widget.RadioGroup
+import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
 import androidx.core.content.ContextCompat
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.doOnAttach
 import org.json.JSONObject
 import java.net.URI
 import java.net.URL
@@ -22,6 +30,7 @@ class RegistrationActivity : AppCompatActivity() {
     private val executor = Executors.newSingleThreadExecutor()
     private lateinit var keys: KeyManager
     private lateinit var database: AuthDatabase
+    private var providerFlowStarted = false
     private var verified: VerifiedServiceManifest?
         get() = PendingRegistrationSession.verified
         set(value) { PendingRegistrationSession.verified = value }
@@ -37,6 +46,10 @@ class RegistrationActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        setContentView(R.layout.activity_registration)
+        supportActionBar?.title = getString(R.string.registration_screen_title)
+        supportActionBar?.setDisplayHomeAsUpEnabled(true)
+        applyRegistrationInsets()
         keys = KeyManager(this)
         database = AuthDatabase(this)
         if ((applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0) {
@@ -45,11 +58,14 @@ class RegistrationActivity : AppCompatActivity() {
                 return
             }
         }
-        if (intent.data?.scheme == CALLBACK_SCHEME) {
-            handleCallback(intent.data!!)
+        val restored = verified
+        if (savedInstanceState != null && restored != null && registrationId == null &&
+            intent.data?.host != "registration-complete"
+        ) {
+            providerFlowStarted = true
+            showDisclosure(restored)
         } else {
-            val origin = intent.getStringExtra(EXTRA_ORIGIN) ?: return fail("Provider URL is missing")
-            fetchProvider(origin)
+            handleRegistrationIntent(intent)
         }
     }
 
@@ -73,7 +89,45 @@ class RegistrationActivity : AppCompatActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        intent.data?.takeIf { it.scheme == CALLBACK_SCHEME }?.let(::handleCallback)
+        handleRegistrationIntent(intent)
+    }
+
+    private fun handleRegistrationIntent(incoming: Intent) {
+        val uri = incoming.data
+        if (uri?.scheme == CALLBACK_SCHEME && uri.host == "registration-complete" &&
+            uri.userInfo == null && uri.port == -1 && uri.fragment == null && uri.path.isNullOrEmpty()
+        ) {
+            handleCallback(uri)
+            return
+        }
+        // A second scan must never overwrite the consent/key/browser state of a live flow.
+        if (providerFlowStarted || verified != null || registrationId != null) {
+            Toast.makeText(this, R.string.registration_link_busy, Toast.LENGTH_LONG).show()
+            return
+        }
+        val origin = try {
+            if (uri != null) RegistrationLink.providerOrigin(uri.toString())
+            else ServiceManifestParser.canonicalOrigin(
+                incoming.getStringExtra(EXTRA_ORIGIN) ?: error("Provider URL is missing"),
+            )
+        } catch (_: Exception) {
+            Toast.makeText(this, R.string.registration_link_invalid, Toast.LENGTH_LONG).show()
+            finish()
+            return
+        }
+        providerFlowStarted = true
+        if (uri == null) {
+            fetchProvider(origin)
+        } else {
+            findViewById<TextView>(R.id.registrationStatus).text = getString(R.string.registration_link_title)
+            AlertDialog.Builder(this)
+                .setTitle(R.string.registration_link_title)
+                .setMessage(getString(R.string.registration_link_confirmation, origin))
+                .setNegativeButton(R.string.dialog_button_cancel) { _, _ -> finish() }
+                .setPositiveButton(R.string.registration_link_continue) { _, _ -> fetchProvider(origin) }
+                .setOnCancelListener { finish() }
+                .show()
+        }
     }
 
     private fun fetchProvider(input: String) {
@@ -105,7 +159,7 @@ class RegistrationActivity : AppCompatActivity() {
                     showDisclosure(value)
                 }
             } catch (_: Exception) {
-                runOnUiThread { fail("Provider identity, manifest, or privacy policy could not be verified.") }
+                runOnUiThread { fail("We could not verify this provider or open its privacy policy. Check the address and try again.") }
             }
         }
     }
@@ -132,35 +186,77 @@ class RegistrationActivity : AppCompatActivity() {
 
     private fun showDisclosure(value: VerifiedServiceManifest) {
         val manifest = value.manifest
-        var choice = 0
-        val profiles = manifest.supportedProfiles.toTypedArray()
-        val requested = manifest.requestedFields.joinToString("\n") {
-            "• ${ServiceManifestParser.displayName(it)}: ${manifest.purposes.getValue(it)}"
+        findViewById<View>(R.id.registrationStatus).visibility = View.GONE
+        findViewById<View>(R.id.registrationForm).visibility = View.VISIBLE
+        findViewById<TextView>(R.id.registrationTitle).text = getString(R.string.registration_title, manifest.serviceName)
+        findViewById<TextView>(R.id.registrationSummary).text = getString(R.string.registration_summary, manifest.serviceName)
+        findViewById<TextView>(R.id.registrationIdentity).text =
+            getString(R.string.registration_identity, manifest.operatorName, value.verifiedDomain)
+        findViewById<TextView>(R.id.registrationData).text = manifest.requestedFields.joinToString("\n\n") {
+            val label = if (it == ServiceManifestParser.FIELD_AUTHENTICATION_PUBLIC_KEY)
+                getString(R.string.registration_public_key) else getString(R.string.registration_provider_id)
+            getString(R.string.registration_field_purpose, label, manifest.purposes.getValue(it))
         }
-        AlertDialog.Builder(this)
-            .setTitle("Register with ${manifest.serviceName}?")
-            .setMessage(
-                "Operator: ${manifest.operatorName}\n" +
-                    "Identity verified for ${value.verifiedDomain}\n\n" + requested + "\n\n" +
-                    "Audiences: ${manifest.allowedAudiences.joinToString()}\n" +
-                    "Scopes: ${manifest.allowedScopes.joinToString()}\n\n" +
-                    "Registration lifetime: ${manifest.registrationLifetimeDays} days. " +
-                    "Successful authentication or an explicit renewal extends it. " +
-                    "The app sends no background heartbeat.\n\n" +
-                    "Registration data is sent over HTTPS to ${manifest.serviceName}. " +
-                    "Deletion: ${manifest.deletionUrlOrContact}\nPrivacy: ${manifest.privacyPolicyUrl}",
-            )
-            .setSingleChoiceItems(profiles, choice) { _, which -> choice = which }
-            .setNeutralButton("View privacy policy") { _, _ ->
-                startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(manifest.privacyPolicyUrl)))
+        val profiles = findViewById<RadioGroup>(R.id.registrationProfiles)
+        profiles.removeAllViews()
+        manifest.supportedProfiles.forEach { profile ->
+            profiles.addView(RadioButton(this).apply {
+                id = View.generateViewId()
+                tag = profile
+                text = getString(if (profile == ServiceManifestParser.PROFILE_BIOMETRIC)
+                    R.string.registration_method_biometric else R.string.registration_method_tap)
+                minHeight = (48 * resources.displayMetrics.density).toInt()
+            })
+        }
+        profiles.check(profiles.getChildAt(0).id)
+        findViewById<Button>(R.id.registrationPolicy).setOnClickListener {
+            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(manifest.privacyPolicyUrl)))
+        }
+        findViewById<TextView>(R.id.registrationDeletion).text =
+            getString(R.string.registration_deletion, manifest.deletionUrlOrContact)
+        findViewById<TextView>(R.id.registrationLifetime).text =
+            getString(R.string.registration_lifetime, manifest.registrationLifetimeDays, manifest.privacyNoticeVersion)
+        val access = findViewById<TextView>(R.id.registrationAccess)
+        access.text = getString(R.string.registration_access_details,
+            manifest.allowedAudiences.joinToString(), manifest.allowedScopes.joinToString())
+        findViewById<Button>(R.id.registrationAccessToggle).setOnClickListener {
+            access.visibility = if (access.visibility == View.GONE) View.VISIBLE else View.GONE
+        }
+        findViewById<Button>(R.id.registrationCancel).setOnClickListener { cancelRegistration() }
+        findViewById<Button>(R.id.registrationAgree).setOnClickListener {
+            selectedProfile = profiles.findViewById<RadioButton>(profiles.checkedRadioButtonId).tag as String
+            it.isEnabled = false
+            startAccountLink()
+        }
+    }
+
+    private fun cancelRegistration() {
+        PendingRegistrationSession.clear()
+        finish()
+    }
+
+    override fun onSupportNavigateUp(): Boolean { cancelRegistration(); return true }
+
+    @Suppress("DEPRECATION")
+    override fun onBackPressed() { cancelRegistration() }
+
+    private fun applyRegistrationInsets() {
+        val root = findViewById<View>(R.id.registrationRoot)
+        ViewCompat.setOnApplyWindowInsetsListener(root) { view, insets ->
+            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            view.post {
+                val rootLocation = IntArray(2)
+                view.getLocationOnScreen(rootLocation)
+                val actionBar: View? = findViewById(androidx.appcompat.R.id.action_bar_container)
+                val barLocation = IntArray(2)
+                actionBar?.getLocationOnScreen(barLocation)
+                val barBottom = if (actionBar?.visibility == View.VISIBLE) barLocation[1] + actionBar.height else 0
+                view.setPadding(bars.left, maxOf(0, bars.top - rootLocation[1], barBottom - rootLocation[1]),
+                    bars.right, bars.bottom)
             }
-            .setNegativeButton(R.string.dialog_button_cancel) { _, _ -> finish() }
-            .setPositiveButton("Agree and register") { _, _ ->
-                selectedProfile = profiles[choice]
-                startAccountLink()
-            }
-            .setOnCancelListener { finish() }
-            .show()
+            insets
+        }
+        root.doOnAttach(ViewCompat::requestApplyInsets)
     }
 
     private fun startAccountLink() {

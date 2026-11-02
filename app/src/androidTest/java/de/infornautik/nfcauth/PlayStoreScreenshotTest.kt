@@ -12,7 +12,7 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.test.espresso.Espresso.onView
 import androidx.test.espresso.action.ViewActions.click
-import androidx.test.espresso.action.ViewActions.swipeUp
+import androidx.test.espresso.action.ViewActions.scrollTo
 import androidx.test.espresso.assertion.ViewAssertions.matches
 import androidx.test.espresso.matcher.ViewMatchers.isEnabled
 import androidx.test.espresso.matcher.ViewMatchers.withId
@@ -46,10 +46,22 @@ class PlayStoreScreenshotTest {
         val registrationIntent = Intent(context, RegistrationActivity::class.java).apply {
             putExtra(RegistrationActivity.EXTRA_PREVIEW_MANIFEST, exampleManifest())
         }
-        ActivityScenario.launch<RegistrationActivity>(registrationIntent).use {
+        ActivityScenario.launch<RegistrationActivity>(registrationIntent).use { scenario ->
             waitForRegistrationPolicyCheck()
+            scenario.onActivity { activity ->
+                val title = activity.findViewById<android.view.View>(R.id.registrationTitle)
+                val position = IntArray(2)
+                title.getLocationOnScreen(position)
+                val edge = (24 * activity.resources.displayMetrics.density).toInt()
+                assertTrue("Registration content needs a readable side margin", position[0] >= edge)
+                val bar: android.view.View? = activity.findViewById(androidx.appcompat.R.id.action_bar_container)
+                val barPosition = IntArray(2)
+                bar?.getLocationOnScreen(barPosition)
+                assertTrue("Registration title must stay below the toolbar",
+                    position[1] >= barPosition[1] + (bar?.height ?: 0))
+            }
             capture("02-registration-disclosure")
-            onView(withId(android.R.id.message)).perform(swipeUp())
+            onView(withId(R.id.registrationAgree)).perform(scrollTo())
             capture("03-registration-confirmation")
         }
 

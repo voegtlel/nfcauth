@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; base-uri 'none'; form-action 'none'">
+  <title>Register a provider — NFC Authenticator</title>
+  <link rel="stylesheet" href="registration-link.css">
+  <script src="registration-link.js" defer></script>
+</head>
+<body>
+  <main>
+    <h1>Register with NFC Authenticator</h1>
+    <p id="status" role="status">Checking registration link…</p>
+    <section id="registration" hidden>
+      <p>Provider address: <strong id="provider"></strong></p>
+      <p>The app will check this website and show who runs it and what information
+        it needs. You can review everything before choosing to register.</p>
+      <p><a class="button" id="open-app">Register in app</a></p>
+      <p>If your browser does not support that button, try the
+        <a id="direct-link">direct app link</a>.</p>
+      <h2>Not installed?</h2>
+      <p><a class="button" href="https://play.google.com/store/apps/details?id=de.infornautik.nfcauth" rel="noreferrer">Install from Google Play</a></p>
+      <p>After installing, return to this page and tap <strong>Register in app</strong>,
+        or scan the QR code again. Installing does not register you automatically.
+        You need an Android phone that supports NFC authentication.</p>
+      <p>During internal testing, you must first
+        <a href="https://play.google.com/apps/testing/de.infornautik.nfcauth" rel="noreferrer">join the test</a>
+        with an invited Google account. Being able to open this page does not grant test access.</p>
+    </section>
+    <noscript>Enable JavaScript to open this registration link, or enter the provider
+      address manually using “Register with provider” in the app.</noscript>
+    <p><a href="privacy-policy.html">App privacy policy</a></p>
+  </main>
+</body>
+</html>
