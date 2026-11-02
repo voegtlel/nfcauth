@@ -45,6 +45,10 @@ jobs:
     - name: Build package
       run: uv build
 
+    - name: Test registration landing page
+      working-directory: ${{ github.workspace }}
+      run: node docs/registration-link.test.cjs
+
     - name: Build bridge container
       working-directory: ${{ github.workspace }}
       run: docker build --file python/Dockerfile python

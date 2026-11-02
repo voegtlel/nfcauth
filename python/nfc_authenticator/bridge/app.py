@@ -56,14 +56,13 @@ class AssertionBody(ApiModel):
 
 class RegistrationStart(ApiModel):
     model_config = ConfigDict(extra="forbid")
-    profile: str
-    public_key: str
+    public_keys: dict[str, str] = Field(min_length=1, max_length=2)
 
 
 class RegistrationComplete(ApiModel):
     model_config = ConfigDict(extra="forbid")
     completion_code: str
-    signature: str
+    signatures: dict[str, str] = Field(min_length=1, max_length=2)
 
 
 class RenewalStart(ApiModel):
@@ -187,7 +186,7 @@ def create_app(
         if registrations is None:
             raise HTTPException(503, "Account-linking adapter is not configured")
         try:
-            attempt, authorization_url = await registrations.start(body.profile, body.public_key)
+            attempt, authorization_url = await registrations.start(body.public_keys)
             return {
                 "registration_id": attempt.registration_id,
                 "authorization_url": authorization_url,
@@ -217,12 +216,11 @@ def create_app(
         if registrations is None:
             raise HTTPException(503, "Account-linking adapter is not configured")
         try:
-            credential = await registrations.complete(registration_id, body.completion_code, body.signature)
+            credentials = await registrations.complete(registration_id, body.completion_code, body.signatures)
             return {
-                "credential_id": credential.credential_id,
-                "service_id": credential.service_id,
-                "profile": credential.profile,
-                "registration_expires_at": credential.expires_at,
+                "service_id": credentials[0].service_id,
+                "credentials": [{"credential_id": value.credential_id, "profile": value.profile,
+                                 "registration_expires_at": value.expires_at} for value in credentials],
             }
         except InvalidSignature as error:
             raise HTTPException(400, "Invalid registration signature") from error

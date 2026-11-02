@@ -32,7 +32,7 @@
 
         <activity
             android:name=".RegistrationActivity"
-            android:theme="@style/Theme.Dialog"
+            android:theme="@style/Theme.AndroidAuth"
             android:launchMode="singleTask"
             android:exported="true">
             <intent-filter>
@@ -40,6 +40,20 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="nfcauth" android:host="registration-complete" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="nfcauth" android:host="register" />
+            </intent-filter>
+            <!-- Web fallback remains usable without domain-level App Links verification. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" android:host="voegtlel.github.io"
+                    android:path="/nfcauth/register.html" />
             </intent-filter>
         </activity>
 
@@ -61,7 +75,7 @@
 
         <activity
             android:name=".UnregisteredServiceDialog"
-            android:theme="@android:style/Theme.Dialog"
+            android:theme="@style/Theme.ProviderNotice"
             android:exported="false" />
 
         <service

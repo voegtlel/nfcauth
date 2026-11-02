@@ -1,3 +1,5 @@
+# Downloaded/generated Play Store preview artifacts.
+store-assets/generated/
 .gradle
 .idea
 .vscode

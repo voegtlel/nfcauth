@@ -18,10 +18,14 @@ class MemoryEnrollmentStore:
             return self._credentials.get(credential_id)
 
     async def save_credential(self, credential: Credential) -> None:
+        await self.save_credentials((credential,))
+
+    async def save_credentials(self, credentials: tuple[Credential, ...]) -> None:
         async with self._lock:
-            if credential.credential_id in self._credentials:
+            identifiers = [value.credential_id for value in credentials]
+            if len(set(identifiers)) != len(identifiers) or any(key in self._credentials for key in identifiers):
                 raise ValueError("Credential already exists")
-            self._credentials[credential.credential_id] = credential
+            self._credentials.update((value.credential_id, value) for value in credentials)
 
     async def revoke_credential(self, credential_id: str) -> bool:
         async with self._lock:

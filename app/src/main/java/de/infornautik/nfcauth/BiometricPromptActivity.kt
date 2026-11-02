@@ -1,6 +1,7 @@
 package de.infornautik.nfcauth
 
 import android.app.AlertDialog
+import android.content.pm.ApplicationInfo
 import android.os.Bundle
 import android.util.Base64
 import androidx.appcompat.app.AppCompatActivity
@@ -12,6 +13,12 @@ import org.json.JSONObject
 class BiometricPromptActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if ((applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0 &&
+            intent.getBooleanExtra(EXTRA_PREVIEW_APPROVAL, false)
+        ) {
+            showApprovedNotice()
+            return
+        }
         val pending = PendingAuthorizationStore.get() ?: return finish()
         val keyManager = KeyManager(this)
         val signature = try {
@@ -47,12 +54,7 @@ class BiometricPromptActivity : AppCompatActivity() {
                         unlocked.update(payload)
                         unsigned.put("signature", Base64.encodeToString(unlocked.sign(), Base64.NO_WRAP))
                         PendingAuthorizationStore.approve(approved.requestHash, unsigned)
-                        AlertDialog.Builder(this@BiometricPromptActivity)
-                            .setTitle("Authorization approved")
-                            .setMessage("Tap the same terminal again to deliver the approval.")
-                            .setPositiveButton(android.R.string.ok) { _, _ -> finish() }
-                            .setOnCancelListener { finish() }
-                            .show()
+                        showApprovedNotice()
                     } catch (_: Exception) {
                         PendingAuthorizationStore.cancel(pending.requestHash)
                         finish()
@@ -78,7 +80,17 @@ class BiometricPromptActivity : AppCompatActivity() {
         prompt.authenticate(info, BiometricPrompt.CryptoObject(signature))
     }
 
+    private fun showApprovedNotice() {
+        AlertDialog.Builder(this)
+            .setTitle("Authorization approved")
+            .setMessage("Tap the same terminal again to finish signing in.")
+            .setPositiveButton(android.R.string.ok) { _, _ -> finish() }
+            .setOnCancelListener { finish() }
+            .show()
+    }
+
     companion object {
+        const val EXTRA_PREVIEW_APPROVAL = "preview_authorization_approved"
         private const val ASSERTION_DOMAIN = "NFCAuth-v4-authorization-assertion\u0000"
     }
 }

@@ -1,0 +1,13 @@
+* { box-sizing: border-box; }
+body { margin: 0; padding: clamp(1rem, 4vw, 2rem); background: #f5f6fa; color: #20232b; font: 1rem/1.6 system-ui, sans-serif; }
+main { width: 100%; max-width: 42rem; margin: 0 auto; padding: clamp(1rem, 4vw, 2rem); background: white; border-radius: 1rem; overflow-wrap: anywhere; }
+h1 { line-height: 1.2; }
+a { color: #1645a0; }
+.button { display: inline-block; min-height: 48px; padding: .7rem 1rem; background: #1645a0; color: white; border-radius: .4rem; }
+strong { overflow-wrap: anywhere; }
+@media (prefers-color-scheme: dark) {
+  body { background: #15171d; color: #eee; }
+  main { background: #222630; }
+  a { color: #a5c1ff; }
+  .button { background: #305fb8; color: white; }
+}

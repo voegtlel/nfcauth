@@ -36,5 +36,38 @@
     <string name="app_privacy_policy_title">App privacy policy</string>
     <string name="menu_about">About</string>
     <string name="view_app_privacy_policy">View privacy policy</string>
+    <string name="registration_link_title">Register with provider?</string>
+    <string name="registration_link_confirmation">Open %1$s to see who runs it and what information it needs. Nothing will be registered until you agree.</string>
+    <string name="registration_link_continue">Review provider</string>
+    <string name="registration_link_invalid">Invalid registration link. Use a provider HTTPS origin.</string>
+    <string name="registration_link_busy">Finish or cancel the current registration before opening another provider link.</string>
+    <string name="registration_screen_title">Register</string>
+    <string name="registration_loading">Getting provider details…</string>
+    <string name="registration_title">Register with %1$s?</string>
+    <string name="registration_summary">Use your phone to sign in to %1$s. If you agree, the information below will be sent securely to this provider.</string>
+    <string name="registration_identity">Run by: %1$s\nVerified website: %2$s</string>
+    <string name="registration_data_heading">What will be shared</string>
+    <plurals name="registration_public_keys">
+        <item quantity="one">%d public sign-in key (the private key stays on your phone)</item>
+        <item quantity="other">%d public sign-in keys (the private keys stay on your phone)</item>
+    </plurals>
+    <plurals name="registration_provider_ids">
+        <item quantity="one">%d ID used only with this provider</item>
+        <item quantity="other">%d IDs used only with this provider</item>
+    </plurals>
+    <string name="registration_field_purpose">• %1$s\nWhy: %2$s</string>
+    <string name="registration_method_heading">How sign-in works</string>
+    <string name="registration_method_explanation">The terminal sets the sign-in method. When fingerprint or face confirmation is required, your phone will ask you to confirm.</string>
+    <string name="registration_read_policy">Read privacy policy</string>
+    <string name="registration_deletion">To delete data held by this provider:\n%1$s</string>
+    <string name="registration_lifetime">Valid for %1$d days. Signing in or renewing extends this time. No automatic check-ins.\nPrivacy notice: %2$s</string>
+    <string name="registration_agree">Agree and register</string>
     <string name="app_privacy_policy_text">NFC Authenticator Privacy Policy\n\nEffective: October 30, 2026\nDeveloper: Lukas Voegtle\n\nOverview\n\nThe developer operates no authentication backend and receives no registration or authentication data. The app has no advertising, analytics, or tracking SDK. Transfers occur only when the user deliberately registers with a provider, explicitly renews a registration, or presents the phone to an NFC terminal. The app sends no background heartbeat and does not periodically contact providers.\n\nData stored locally\n\nFor each approved service and authentication profile, the app stores the service domain and disclosure metadata, approved fields and purposes, policy and deletion links, provider certificate fingerprint, approval and last-confirmed expiration times, a provider-issued opaque credential reference, and profile-specific credentials. Signing keys are not reused across services or profiles. Authentication attempts, assertions, NFC session keys, and access tokens are kept only in memory.\n\nTransfers\n\nBefore registration, the app shows the recipient, operator, certificate-verified domain, exact requested fields and purposes, policy and deletion links, authentication profile, and registration lifetime. Registration requires “Agree and register.” Manual renewal requires a separate confirmation and sends only a one-time proof signed by the already approved service-specific credential. Online registration and renewal use HTTPS with the selected provider. During NFC use, authenticated application-layer encryption protects the phone-to-terminal hop, and the selected terminal submits the signed approval to its provider bridge over HTTPS. The provider and its terminal or proxy infrastructure are the intended recipient and can process the approved data; the app developer and unrelated network intermediaries do not receive plaintext. No undisclosed field is sent. Limited HTTPS requests fetch provider metadata, check that the service policy is accessible, and perform a user-requested registration or renewal.\n\nIndependent services\n\nEach recipient controls subsequent processing under its own policy. Domain-certificate verification proves control of the service domain; it does not certify the named operator or legal sufficiency of its policy.\n\nRetention and deletion\n\nThe app displays the last expiration confirmed during registration or explicit renewal. Providers may extend their authoritative server-side expiry after verified authentication; the offline phone cannot observe that terminal-to-provider result, so its date may be earlier. Local registrations remain until deleted in the app, app storage is cleared, or the app is uninstalled. Android backup is disabled. Local deletion removes the record and profile-specific signing key, but not the service’s copy; use its displayed deletion instructions. An expired provider registration must be registered again.\n\nSecurity and logs\n\nPrivate signing keys are held by Android Keystore. The app accepts only protocol version 4 encrypted traffic. Logs do not contain names, identifiers, keys, plaintext, or decrypted registration/authentication data.\n\nContact\n\nApp privacy requests: https://github.com/voegtlel/nfcauth/issues. Service data requests must use that service’s deletion contact.\n\nPublished policy: https://voegtlel.github.io/nfcauth/privacy-policy.html</string>
+    <string name="unregistered_provider_title">Register this provider?</string>
+    <string name="unregistered_provider_message">Register once to use your phone to sign in here.</string>
+    <string name="unregistered_provider_address_label">From the NFC terminal · not verified yet</string>
+    <string name="unregistered_provider_hint">You can review the provider before agreeing.\n\nConnect to the internet to register, then tap again to sign in.</string>
+    <string name="unregistered_provider_later">Not now</string>
+    <string name="unregistered_provider_invalid">The NFC terminal did not provide a valid provider address. Ask the provider for its registration link.</string>
+    <string name="unregistered_provider_register">Register with provider</string>
 </resources>

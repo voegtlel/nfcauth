@@ -69,9 +69,19 @@ jobs:
             adb shell am broadcast -a com.android.systemui.demo -e command battery -e level 100 -e plugged false || true
             adb shell am broadcast -a com.android.systemui.demo -e command notifications -e visible false || true
             adb shell rm -rf /sdcard/Pictures/play-store
-            gradle connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=de.infornautik.nfcauth.PlayStoreScreenshotTest
+            gradle connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=de.infornautik.nfcauth.PlayStoreScreenshotTest,de.infornautik.nfcauth.RegistrationLinkIntentTest,de.infornautik.nfcauth.PrivacyMenuTest,de.infornautik.nfcauth.PendingAuthorizationTest || { mkdir -p "store-assets/screenshots/$SCREENSHOT_PROFILE"; adb pull /sdcard/Pictures/play-store/. "store-assets/screenshots/$SCREENSHOT_PROFILE/"; exit 1; }
             mkdir -p "store-assets/screenshots/$SCREENSHOT_PROFILE"
             adb pull /sdcard/Pictures/play-store/. "store-assets/screenshots/$SCREENSHOT_PROFILE/"
+
+      - name: Upload UI diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ui-diagnostics-${{ matrix.profile }}
+          path: |
+            app/build/reports/androidTests/
+            app/build/outputs/androidTest-results/
+            store-assets/screenshots/${{ matrix.profile }}/
 
       - name: Verify screenshot dimensions
         shell: python
@@ -100,12 +110,46 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: play-store-${{ matrix.profile }}
-          path: store-assets/screenshots/${{ matrix.profile }}/*.png
+          path: store-assets/screenshots/${{ matrix.profile }}/
+          if-no-files-found: error
+
+  web-preview:
+    name: Registration web page previews
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - name: Capture browser views
+        shell: bash
+        run: |
+          mkdir -p store-assets/web-review
+          python3 -m http.server 8765 --bind 127.0.0.1 --directory docs > /dev/null 2>&1 &
+          preview_server=$!
+          trap 'kill "$preview_server"' EXIT
+          for attempt in {1..20}; do
+            if curl --silent --fail http://127.0.0.1:8765/register.html > /dev/null; then break; fi
+            sleep 0.2
+          done
+          for size in 390,844 800,1280; do
+            google-chrome --headless --no-sandbox --disable-gpu --hide-scrollbars \
+              --virtual-time-budget=1000 --window-size="$size" \
+              --screenshot="store-assets/web-review/registration-$size.png" \
+              'http://127.0.0.1:8765/register.html?provider=https%3A%2F%2Fauth.example.com'
+          done
+          google-chrome --headless --no-sandbox --disable-gpu --hide-scrollbars \
+            --virtual-time-budget=1000 --window-size=390,844 \
+            --screenshot=store-assets/web-review/invalid-link.png \
+            'http://127.0.0.1:8765/register.html?provider=http%3A%2F%2Fexample.com'
+      - uses: actions/upload-artifact@v7
+        with:
+          name: play-store-web-review
+          path: store-assets/web-review/*.png
           if-no-files-found: error
 
   package:
     name: Package Play Store assets
-    needs: screenshots
+    needs: [screenshots, web-preview]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -119,7 +163,10 @@ jobs:
           path: store-assets/generated/screenshots
 
       - name: Add feature graphic
-        run: cp store-assets/feature-graphic.png store-assets/generated/feature-graphic.png
+        run: |
+          cp store-assets/feature-graphic.png store-assets/generated/feature-graphic.png
+          cp store-assets/review-gallery.html store-assets/generated/index.html
+          cp docs/screenshots-review.md store-assets/generated/REVIEW.md
 
       - name: Upload complete Play Store asset bundle
         uses: actions/upload-artifact@v7

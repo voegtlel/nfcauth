@@ -73,6 +73,7 @@ def app_from_environment() -> FastAPI:
         enrollments,
         oidc,
         credential_lifetime_seconds=credential_lifetime_seconds,
+        supported_profiles=tuple(manifest["supported_assurance_profiles"]),
     )
     renewals = RenewalCoordinator(
         settings.service_id,

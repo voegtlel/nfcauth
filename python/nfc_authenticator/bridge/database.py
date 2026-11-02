@@ -45,11 +45,15 @@ class SqlAlchemyEnrollmentStore:
             return None if row is None else _credential(row)
 
     async def save_credential(self, credential: Credential) -> None:
+        await self.save_credentials((credential,))
+
+    async def save_credentials(self, credentials: tuple[Credential, ...]) -> None:
         async with self.sessions() as session, session.begin():
-            existing = await session.get(CredentialRow, credential.credential_id)
-            if existing is not None:
-                raise ValueError("Credential already exists")
-            session.add(CredentialRow(**credential.__dict__))
+            for credential in credentials:
+                existing = await session.get(CredentialRow, credential.credential_id)
+                if existing is not None:
+                    raise ValueError("Credential already exists")
+                session.add(CredentialRow(**credential.__dict__))
 
     async def revoke_credential(self, credential_id: str) -> bool:
         async with self.sessions() as session, session.begin():

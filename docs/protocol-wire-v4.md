@@ -60,9 +60,9 @@ The `/v1/` path is the bridge API namespace, not NFC protocol version 1.
 | Endpoint | Request / response |
 | --- | --- |
 | `GET /.well-known/nfc-authenticator` | Signed manifest envelope |
-| `POST /v1/registrations` | `{profile, public_key}` → `{registration_id, authorization_url, expires_at}` |
+| `POST /v1/registrations` | `{public_keys: {profile: DER_SPKI_Base64}}` → `{registration_id, authorization_url, expires_at}` |
 | `GET /v1/oidc/callback?state=…&code=…` | Browser callback → `nfcauth://registration-complete?registration_id=…&completion_code=…` |
-| `POST /v1/registrations/{id}/complete` | `{completion_code, signature}` → `{credential_id, service_id, profile, registration_expires_at}` |
+| `POST /v1/registrations/{id}/complete` | `{completion_code, signatures: {profile: Base64_signature}}` → `{service_id, credentials: [{credential_id, profile, registration_expires_at}]}` |
 | `POST /v1/registration-renewals` | `{credential_id}` → `{renewal: document}` |
 | `POST /v1/registration-renewals/{id}/complete` | `{signature}` → `{credential_id, registration_expires_at, renewed_at}` |
 | `POST /v1/transactions` | `{audience, scopes, action, assurance}` → `{transaction_id, expires_at}` |
@@ -77,6 +77,14 @@ Renewal requires proof by the existing active credential. Never expose the
 callback code or terminal bearer token on NFC. Invalid completion signatures
 return controlled 4xx responses; timeouts may mean completion already consumed
 the transaction, so start a new attempt rather than assuming safe replay.
+
+Registration maps must cover exactly the provider-supported profiles and use
+different P-256 keys. Every key signs the same registration completion payload;
+the attempt fixes the key/profile mapping. Verify all proofs before atomically
+persisting all credentials. The terminal chooses `assurance` when creating an
+authentication transaction, and a possession credential cannot satisfy biometric
+assurance. Existing per-profile server records remain valid; clients and bridges
+must be updated together for this new batch registration API.
 
 Renewal documents include `renewal_id`, `credential_id`, `service_id`, `profile`,
 `challenge`, `issued_at`, `challenge_expires_at`, `current_registration_expires_at`,

@@ -50,9 +50,9 @@ async def test_callback_state_is_claimed_once_under_concurrency() -> None:
     oidc.authorization_url = lambda *args: "https://id.example/authorize"
     oidc.complete.return_value = Subject("https://id.example", "test")
     coordinator = RegistrationCoordinator("example", RegistrationAttempts(), MemoryEnrollmentStore(), oidc,
-                                          credential_lifetime_seconds=548 * 86400)
+                                          credential_lifetime_seconds=548 * 86400, supported_profiles=("possession",))
     key, _ = signing_key()
-    attempt, _ = await coordinator.start("possession", public_key_der_b64(key.public_key()))
+    attempt, _ = await coordinator.start({"possession": public_key_der_b64(key.public_key())})
     results = await asyncio.gather(*(coordinator.callback(attempt.state, "code") for _ in range(20)),
                                    return_exceptions=True)
     assert sum(isinstance(result, ValueError) for result in results) == 19
@@ -70,9 +70,9 @@ async def test_failed_callback_cannot_be_retried_with_same_state() -> None:
     oidc.authorization_url = lambda *args: "https://id.example/authorize"
     oidc.complete.side_effect = ValueError("failed")
     coordinator = RegistrationCoordinator("example", attempts, MemoryEnrollmentStore(), oidc,
-                                          credential_lifetime_seconds=548 * 86400)
+                                          credential_lifetime_seconds=548 * 86400, supported_profiles=("possession",))
     key, _ = signing_key()
-    attempt, _ = await coordinator.start("possession", public_key_der_b64(key.public_key()))
+    attempt, _ = await coordinator.start({"possession": public_key_der_b64(key.public_key())})
     for _ in range(2):
         with pytest.raises(ValueError):
             await coordinator.callback(attempt.state, "code")
@@ -113,7 +113,7 @@ def test_body_and_rate_limits() -> None:
 
 def test_api_field_limits() -> None:
     with pytest.raises(ValidationError):
-        RegistrationStart(profile="possession", public_key="x" * 2049)
+        RegistrationStart(public_keys={"possession": "x" * 2049})
     with pytest.raises(ValidationError):
         TransactionCreate(audience="api", scopes=["x" * 256], action="read", assurance="possession")
 
@@ -160,8 +160,8 @@ async def test_callback_cannot_resurrect_expired_attempt() -> None:
 
     oidc.complete.side_effect = complete
     coordinator = RegistrationCoordinator("example", attempts, MemoryEnrollmentStore(), oidc,
-                                          credential_lifetime_seconds=548 * 86400, clock=lambda: now)
+                                          credential_lifetime_seconds=548 * 86400, clock=lambda: now, supported_profiles=("possession",))
     key, _ = signing_key()
-    attempt, _ = await coordinator.start("possession", public_key_der_b64(key.public_key()))
+    attempt, _ = await coordinator.start({"possession": public_key_der_b64(key.public_key())})
     with pytest.raises(ValueError, match="expired"):
         await coordinator.callback(attempt.state, "code")

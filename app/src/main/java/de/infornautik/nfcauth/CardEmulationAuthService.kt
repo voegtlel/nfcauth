@@ -77,7 +77,7 @@ abstract class BaseCardEmulationAuthService : HostApduService() {
             val serviceOrigin = request.getString("service_origin")
             val serviceId = request.getString("service_id")
             val registration = database.getRegistration(serviceOrigin, serviceId, authenticationProfile)
-                ?: return UNAUTHORIZED.also { showNotRegistered() }
+                ?: return UNAUTHORIZED.also { showNotRegistered(serviceOrigin) }
             val verified = AuthorizationRequestVerifier.verifyAuthorization(
                 envelope,
                 context,
@@ -257,9 +257,14 @@ abstract class BaseCardEmulationAuthService : HostApduService() {
         } else NOT_FOUND
     }
 
-    private fun showNotRegistered() {
+    private fun showNotRegistered(serviceOrigin: String) {
+        // Unknown NFC peers supply only an address hint, not a verified identity.
+        require(serviceOrigin.length <= 2048)
+        val origin = ServiceManifestParser.canonicalOrigin(serviceOrigin)
         runCatching {
-            startActivity(Intent(this, UnregisteredServiceDialog::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            startActivity(Intent(this, UnregisteredServiceDialog::class.java)
+                .putExtra(UnregisteredServiceDialog.EXTRA_ORIGIN, origin)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
         }
     }
 

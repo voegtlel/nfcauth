@@ -80,6 +80,15 @@ class AuthDatabase(context: Context) : SQLiteOpenHelper(context, "auth-v4.db", n
         ) != -1L
     }
 
+    fun saveRegistrations(registrations: List<ServiceRegistration>): Boolean {
+        val db = writableDatabase
+        db.beginTransaction()
+        return try {
+            if (registrations.isEmpty() || !registrations.all(::saveRegistration)) false
+            else { db.setTransactionSuccessful(); true }
+        } finally { db.endTransaction() }
+    }
+
     fun deleteRegistration(serviceOrigin: String, serviceId: String, profile: String): Boolean =
         writableDatabase.delete(
             "services",

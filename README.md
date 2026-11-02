@@ -56,6 +56,7 @@ provide PC/SC, USB, serial, vendor-SDK, or entirely custom transports.
 - [Architecture](docs/architecture-v4.md)
 - [Protocol and two-tap biometric flow](docs/protocol-v4.md)
 - [Terminal integration tutorial](docs/terminal-integration.md)
+- [Registration links and printed QR codes](docs/registration-qr.md)
 - [Bridge deployment tutorial](docs/bridge-deployment.md)
 - [Optional Authentik integration](docs/authentik-integration.md)
 - [Security model and residual risks](docs/security-model-v4.md)
